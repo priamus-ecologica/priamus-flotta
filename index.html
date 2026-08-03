@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Priamus Flotta</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b192c">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Priamus">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --blue: #0b192c;
+  --orange: #ff7800;
+  --bg: #f0f4f8;
+  --card: #ffffff;
+  --text: #1e293b;
+  --light: #64748b;
+  --border: #e2e8f0;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text);
+  margin: 0; padding: 16px 10px calc(24px + env(safe-area-inset-bottom));
+  padding-top: calc(16px + env(safe-area-inset-top));
+  -webkit-tap-highlight-color: transparent;
+}
+.card {
+  max-width: 480px; margin: 0 auto; background: var(--card); padding: 26px 22px;
+  border-radius: 16px; box-shadow: 0 10px 30px rgba(11,25,44,0.08); border-top: 6px solid var(--orange);
+}
+.logo { display: block; margin: 0 auto 10px; max-width: 160px; height: auto; }
+.logo-sm { display: block; margin: 0 auto 6px; max-width: 100px; height: auto; }
+h2, h3 { text-align: center; color: var(--blue); margin: 0 0 22px; font-weight: 700; }
+h3 { font-size: 17px; }
+p.sub { text-align: center; font-size: 14px; color: var(--light); margin: -14px 0 22px; }
+.grp { margin-bottom: 16px; }
+label { display: block; font-weight: 600; margin-bottom: 7px; font-size: 12px;
+  text-transform: uppercase; letter-spacing: .5px; }
+select, input {
+  width: 100%; padding: 14px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 16px; background: #f8fafc; font-family: inherit; color: var(--text);
+}
+select:focus, input:focus { border-color: var(--orange); outline: none; background: #fff;
+  box-shadow: 0 0 0 3px rgba(255,120,0,.15); }
+.btn {
+  width: 100%; padding: 15px; background: var(--blue); color: #fff; border: none;
+  border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 12px;
+  text-transform: uppercase; letter-spacing: .8px; font-family: inherit;
+}
+.btn:active { transform: scale(.99); }
+.btn.orange { background: var(--orange); }
+.btn.green { background: #10b981; }
+.btn.blue { background: #0284c7; }
+.btn.ghost { background: transparent; color: var(--light); border: 1px solid var(--border); }
+.btn.danger { background: transparent; color: #ef4444; border: 1px solid #ef4444;
+  padding: 9px; font-size: 12px; margin-top: 12px; }
+.hidden { display: none !important; }
+.viaggio {
+  background: #fff; border: 1px solid var(--border); border-left: 5px solid var(--blue);
+  border-radius: 12px; padding: 18px; margin-bottom: 16px;
+}
+.viaggio.corso { border-left-color: var(--orange); }
+.badge { display: inline-block; padding: 5px 9px; border-radius: 6px; font-size: 11px;
+  font-weight: 700; text-transform: uppercase; float: right; }
+.b-ass { background: #fff7ed; color: #ea580c; border: 1px solid #ffedd5; }
+.b-cor { background: #f0f9ff; color: #0284c7; border: 1px solid #e0f2fe; }
+.msg { margin-top: 16px; padding: 13px; border-radius: 8px; text-align: center;
+  font-weight: 600; font-size: 14px; }
+.tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 22px; }
+.tab { flex: 1; padding: 12px; background: none; border: none; font-size: 14px;
+  font-weight: 700; color: var(--light); border-bottom: 3px solid transparent;
+  font-family: inherit; cursor: pointer; }
+.tab.on { color: var(--orange); border-bottom-color: var(--orange); }
+.preview { margin-top: 9px; padding: 11px; background: #f1f5f9; border-radius: 8px;
+  border: 1px dashed #cbd5e1; font-size: 13px; font-weight: 600; line-height: 1.6; }
+.nota { font-size: 13px; margin: 9px 0; padding: 10px; background: #fff7ed;
+  border-left: 3px solid var(--orange); border-radius: 6px; color: #7c2d12; }
+hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+.hint { font-size: 12px; color: var(--light); margin-top: 5px; }
+#offline { position: fixed; top: 0; left: 0; right: 0; background: #b91c1c; color: #fff;
+  text-align: center; padding: 7px; font-size: 13px; font-weight: 600; z-index: 500; }
+</style>
+</head>
+<body>
+
+<div id="offline" class="hidden">⚠️ Nessuna connessione</div>
+
+<!-- LOGIN -->
+<div id="v-login" class="card">
+  <img class="logo" src="icons/icon-512.png" alt="Priamus">
+  <h2>Portale Operativo</h2>
+  <div class="grp">
+    <label>Accedi come</label>
+    <select id="tipo" onchange="cambiaTipo()">
+      <option value="autista">Autista</option>
+      <option value="responsabile">Responsabile (Admin)</option>
+    </select>
+  </div>
+  <div class="grp" id="g-nome">
+    <label>Seleziona il tuo nome</label>
+    <select id="nome-autista"><option>Caricamento…</option></select>
+  </div>
+  <div class="grp">
+    <label id="lbl-pass">Il tuo PIN personale</label>
+    <input type="password" id="pass" inputmode="numeric" placeholder="••••">
+  </div>
+  <button class="btn" onclick="login()">Accedi</button>
+  <div id="err-login" class="msg hidden" style="background:#fee2e2;color:#b91c1c;"></div>
+</div>
+
+<!-- ADMIN -->
+<div id="v-admin" class="card hidden">
+  <img class="logo-sm" src="icons/icon-512.png" alt="Priamus">
+  <h2>Area Admin</h2>
+  <div class="tabs">
+    <button class="tab on" id="t-ass" onclick="tab('ass')">📝 Assegna</button>
+    <button class="tab" id="t-dash" onclick="tab('dash')">📊 Dashboard</button>
+  </div>
+
+  <div id="p-assegna">
+    <div class="grp">
+      <label>📅 Data dei viaggi</label>
+      <input type="date" id="a-data">
+      <div class="hint">Vale per tutti i viaggi che assegni adesso.</div>
+    </div>
+    <div class="grp"><label>Autista</label><select id="a-autista"></select></div>
+    <div class="grp"><label>Camion (modello)</label><select id="a-mezzo" onchange="preview()"></select></div>
+    <div class="grp"><label>Rimorchio</label><select id="a-rimorchio"></select></div>
+    <div class="grp">
+      <label>Tratta (viaggio chiave)</label>
+      <select id="a-tratta" onchange="preview()"></select>
+      <div id="a-preview" class="preview hidden"></div>
+    </div>
+    <div class="grp">
+      <label>Nota per l'autista (facoltativa)</label>
+      <input type="text" id="a-nota" placeholder="Es. chiamare all'arrivo…">
+    </div>
+    <button class="btn orange" onclick="assegna()">Conferma assegnazione</button>
+    <div id="msg-admin" class="msg hidden"></div>
+  </div>
+
+  <div id="p-dash" class="hidden">
+    <p class="sub">Situazione flotta in tempo reale</p>
+    <button class="btn" style="padding:10px;font-size:13px;" onclick="caricaFlotta()">🔄 Aggiorna</button>
+    <div id="lista-flotta" style="margin-top:16px;"></div>
+  </div>
+
+  <button class="btn ghost" style="margin-top:26px;" onclick="esci()">Esci</button>
+</div>
+
+<!-- AUTISTA -->
+<div id="v-autista" class="card hidden">
+  <img class="logo-sm" src="icons/icon-512.png" alt="Priamus">
+  <h2>Benvenuto,<br><span id="nome-loggato" style="color:var(--orange)"></span></h2>
+
+  <button class="btn blue" onclick="toggleRif(true)">⛽ Segnala rifornimento</button>
+  <div id="form-rif" class="hidden" style="background:#f8fafc;padding:18px;border-radius:12px;border:1px solid #cbd5e1;margin-top:16px;">
+    <h3 style="color:#0369a1">Nuovo rifornimento</h3>
+    <div class="grp"><label>Camion</label><select id="r-mezzo"></select></div>
+    <div class="grp"><label>Litri</label><input type="number" step="0.01" id="r-litri" inputmode="decimal"></div>
+    <div class="grp"><label>Costo totale (€)</label><input type="number" step="0.01" id="r-costo" inputmode="decimal"></div>
+    <div class="grp"><label>KM attuali</label><input type="number" id="r-km" inputmode="numeric"></div>
+    <div class="grp"><label>Foto ricevuta</label><input type="file" id="r-foto" accept="image/*" capture="environment"></div>
+    <button class="btn green" onclick="salvaRif()">Conferma</button>
+    <button class="btn ghost" onclick="toggleRif(false)">Annulla</button>
+  </div>
+
+  <hr>
+  <p class="sub">Le tratte a te assegnate</p>
+  <div id="lista-viaggi"></div>
+  <div id="msg-aut" class="msg hidden"></div>
+  <button class="btn ghost" style="margin-top:26px;" onclick="esci()">Esci</button>
+</div>
+
+<script>
+// ============================================================
+//  CONFIGURAZIONE - i due valori da personalizzare
+// ============================================================
+const API_URL = "https://script.google.com/macros/s/AKfycbxhci3gX_VkNZ6EdIOYMLdMcDrZXm7W0SJ_YMjShFR0MSzIQyqjss32kpnayR6gEg39/exec";
+const SEGRETO = "priamus-flotta-2026-Kt7xQw9zLm";
+
+// ============================================================
+let DATI = { autisti: [], mezzi: [], rimorchi: [], regole: [], ultimeDestinazioni: {} };
+let autistaLoggato = "";
+
+async function api(azione, extra) {
+  const body = Object.assign({ azione: azione, segreto: SEGRETO }, extra || {});
+  const res = await fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify(body)   // text/plain: evita il preflight CORS
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.msg || "Errore sconosciuto");
+  return json.dati;
+}
+
+function $(id) { return document.getElementById(id); }
+function mostra(id) { $(id).classList.remove("hidden"); }
+function nascondi(id) { $(id).classList.add("hidden"); }
+
+function msg(id, testo, tipo) {
+  const box = $(id);
+  box.textContent = testo;
+  box.className = "msg";
+  const stili = {
+    ok:    ["#dcfce7", "#15803d"],
+    err:   ["#fee2e2", "#b91c1c"],
+    info:  ["#e0f2fe", "#0369a1"],
+    attesa:["#fef9c3", "#854d0e"]
+  };
+  const s = stili[tipo] || stili.info;
+  box.style.background = s[0];
+  box.style.color = s[1];
+}
+
+function popola(id, elenco) {
+  const sel = $(id);
+  sel.innerHTML = "";
+  (elenco || []).forEach(x => {
+    const o = document.createElement("option");
+    if (typeof x === "string") { o.value = x; o.textContent = x; }
+    else { o.value = x.targa; o.textContent = x.label; }
+    sel.appendChild(o);
+  });
+}
+
+// ---------- avvio ----------
+window.addEventListener("load", async () => {
+  const oggi = new Date();
+  $("a-data").value = oggi.getFullYear() + "-" +
+    String(oggi.getMonth() + 1).padStart(2, "0") + "-" +
+    String(oggi.getDate()).padStart(2, "0");
+
+  aggiornaStatoRete();
+  window.addEventListener("online", aggiornaStatoRete);
+  window.addEventListener("offline", aggiornaStatoRete);
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+
+  try {
+    DATI = await api("elenchi");
+    popola("nome-autista", DATI.autisti);
+    popola("a-autista", DATI.autisti);
+    popola("a-mezzo", DATI.mezzi);
+    popola("a-rimorchio", DATI.rimorchi);
+    popola("r-mezzo", DATI.mezzi);
+    const sel = $("a-tratta");
+    sel.innerHTML = '<option value="">-- Seleziona una tratta --</option>';
+    DATI.regole.forEach(r => {
+      const o = document.createElement("option");
+      o.value = r.chiave; o.textContent = r.chiave;
+      sel.appendChild(o);
+    });
+  } catch (e) {
+    msg("err-login", "Errore di caricamento: " + e.message, "err");
+    mostra("err-login");
+  }
+});
+
+function aggiornaStatoRete() {
+  navigator.onLine ? nascondi("offline") : mostra("offline");
+}
+
+// ---------- login ----------
+function cambiaTipo() {
+  const admin = $("tipo").value === "responsabile";
+  $("g-nome").classList.toggle("hidden", admin);
+  $("lbl-pass").textContent = admin ? "Password di sistema" : "Il tuo PIN personale";
+  $("pass").setAttribute("inputmode", admin ? "text" : "numeric");
+}
+
+async function login() {
+  const pass = $("pass").value;
+  if (!pass) { msg("err-login", "Inserisci la password/PIN!", "err"); mostra("err-login"); return; }
+  msg("err-login", "Verifica credenziali…", "info"); mostra("err-login");
+  try {
+    const res = await api("login", {
+      tipo: $("tipo").value,
+      utente: $("nome-autista").value,
+      password: pass
+    });
+    if (!res.success) { msg("err-login", res.msg, "err"); return; }
+    nascondi("err-login");
+    nascondi("v-login");
+    if (res.role === "admin") {
+      mostra("v-admin");
+    } else {
+      autistaLoggato = res.nome;
+      $("nome-loggato").textContent = res.nome;
+      mostra("v-autista");
+      caricaViaggi();
+    }
+  } catch (e) {
+    msg("err-login", e.message, "err");
+  }
+}
+
+function esci() {
+  autistaLoggato = "";
+  nascondi("v-admin"); nascondi("v-autista"); mostra("v-login");
+  $("pass").value = "";
+  nascondi("err-login"); nascondi("msg-admin"); nascondi("msg-aut");
+  toggleRif(false);
+  tab("ass");
+  window.scrollTo(0, 0);
+}
+
+// ---------- admin ----------
+function tab(quale) {
+  const ass = quale === "ass";
+  $("t-ass").classList.toggle("on", ass);
+  $("t-dash").classList.toggle("on", !ass);
+  $("p-assegna").classList.toggle("hidden", !ass);
+  $("p-dash").classList.toggle("hidden", ass);
+  if (!ass) caricaFlotta();
+}
+
+function preview() {
+  const chiave = $("a-tratta").value;
+  const box = $("a-preview");
+  if (!chiave) { box.classList.add("hidden"); return; }
+  const r = DATI.regole.find(x => x.chiave === chiave);
+  if (!r) return;
+  let partenza = r.partenza || DATI.ultimeDestinazioni[$("a-mezzo").value] ||
+    "⚠️ Da definire (nessun viaggio precedente per questo mezzo)";
+  box.innerHTML = "📍 <b>Partenza:</b> " + partenza + "<br>🏁 <b>Arrivo:</b> " + r.arrivo;
+  box.classList.remove("hidden");
+}
+
+async function assegna() {
+  const chiave = $("a-tratta").value;
+  if (!chiave) { alert("Seleziona una tratta!"); return; }
+  const data = $("a-data").value;
+  if (!data) { alert("Inserisci la data dei viaggi!"); return; }
+
+  const mezzo = $("a-mezzo").value;
+  const r = DATI.regole.find(x => x.chiave === chiave);
+  let partenza = r.partenza || DATI.ultimeDestinazioni[mezzo];
+  if (!partenza) { alert("Partenza non determinabile: nessun viaggio precedente per questo mezzo!"); return; }
+
+  msg("msg-admin", "Creazione viaggio…", "attesa"); mostra("msg-admin");
+  try {
+    const res = await api("assegna", {
+      autista: $("a-autista").value,
+      targaMezzo: mezzo,
+      targaRimorchio: $("a-rimorchio").value,
+      partenza: partenza,
+      arrivo: r.arrivo,
+      chiave: chiave,
+      nota: $("a-nota").value.trim(),
+      dataViaggio: data
+    });
+    msg("msg-admin", res.msg, "ok");
+    DATI.ultimeDestinazioni[mezzo] = r.arrivo;
+    $("a-tratta").value = "";
+    $("a-nota").value = "";
+    $("a-preview").classList.add("hidden");
+  } catch (e) {
+    msg("msg-admin", e.message, "err");
+  }
+}
+
+async function caricaFlotta() {
+  const box = $("lista-flotta");
+  box.innerHTML = "<p style='text-align:center;color:#64748b'>Caricamento…</p>";
+  try {
+    const flotta = await api("statoFlotta");
+    if (!flotta.length) {
+      box.innerHTML = "<div class='viaggio' style='text-align:center'>✅ Nessun mezzo in viaggio.</div>";
+      return;
+    }
+    box.innerHTML = "";
+    flotta.forEach(v => {
+      const d = document.createElement("div");
+      d.className = "viaggio" + (v.stato === "In Corso" ? " corso" : "");
+      d.innerHTML =
+        "<div><span class='badge " + (v.stato === "In Corso" ? "b-cor" : "b-ass") + "'>" + v.stato + "</span>" +
+        "<strong style='font-size:15px;color:var(--blue);text-transform:uppercase'>" + v.autista + "</strong></div>" +
+        "<div style='font-size:14px;margin-top:8px'><b>" + (v.chiave || (v.partenza + " ➔ " + v.arrivo)) + "</b></div>" +
+        "<div style='font-size:12px;margin-top:8px;color:var(--light)'>🚚 " + v.mezzo + " | 🔗 " + v.rimorchio +
+        "<br>📅 " + v.data + "</div>" +
+        (v.nota ? "<div class='nota'>📌 " + v.nota + "</div>" : "");
+      const b = document.createElement("button");
+      b.className = "btn danger";
+      b.textContent = "🗑️ Elimina viaggio";
+      b.onclick = () => elimina(v.id, v.autista);
+      d.appendChild(b);
+      box.appendChild(d);
+    });
+  } catch (e) {
+    box.innerHTML = "<p style='text-align:center;color:#b91c1c'>" + e.message + "</p>";
+  }
+}
+
+async function elimina(id, autista) {
+  if (!confirm("Eliminare il viaggio di " + autista + "?\nL'operazione non si può annullare.")) return;
+  try {
+    const res = await api("elimina", { id: id });
+    alert(res.msg);
+  } catch (e) {
+    alert(e.message);
+  }
+  caricaFlotta();
+}
+
+// ---------- autista ----------
+async function caricaViaggi() {
+  const box = $("lista-viaggi");
+  box.innerHTML = "<p style='text-align:center;color:#64748b'>Sincronizzazione…</p>";
+  try {
+    const viaggi = await api("viaggiAutista", { autista: autistaLoggato });
+    if (!viaggi.length) {
+      box.innerHTML = "<div class='viaggio' style='text-align:center;color:#64748b'>✅ Nessun viaggio in sospeso.</div>";
+      return;
+    }
+    box.innerHTML = "";
+    viaggi.forEach(v => {
+      const d = document.createElement("div");
+      d.className = "viaggio" + (v.stato === "In Corso" ? " corso" : "");
+      let h =
+        "<div><span class='badge " + (v.stato === "In Corso" ? "b-cor" : "b-ass") + "'>" + v.stato + "</span>" +
+        "<strong style='font-size:17px;color:var(--blue)'>" + v.chiave + "</strong></div>" +
+        "<div style='font-size:13px;margin:10px 0;color:var(--light)'>📅 " + v.data +
+        "<br>🚚 <b>" + v.mezzo + "</b> | 🔗 <b>" + v.rimorchio + "</b></div>" +
+        (v.nota ? "<div class='nota'>📌 <b>Nota:</b> " + v.nota + "</div>" : "");
+
+      if (v.stato === "Assegnato") {
+        h += "<hr><div class='grp'><label>KM partenza</label>" +
+             "<input type='number' inputmode='numeric' id='kmp-" + v.id + "' value='" + v.kmPrecedente + "'></div>";
+      } else {
+        h += "<hr><div class='grp'><label>KM arrivo</label><input type='number' inputmode='numeric' id='kma-" + v.id + "'></div>" +
+             "<div class='grp'><label>Tonnellate</label><input type='number' step='0.01' inputmode='decimal' id='ton-" + v.id + "'></div>" +
+             "<div class='grp'><label>Ore (es. 4:30)</label><input type='text' id='ore-" + v.id + "'></div>" +
+             "<div class='grp'><label>Foto formulario</label><input type='file' accept='image/*' capture='environment' id='foto-" + v.id + "'></div>";
+      }
+      d.innerHTML = h;
+
+      const b = document.createElement("button");
+      if (v.stato === "Assegnato") {
+        b.className = "btn"; b.textContent = "🏁 Inizia tratta";
+        b.onclick = () => avvia(v.id);
+      } else {
+        b.className = "btn green"; b.textContent = "✅ Chiudi viaggio";
+        b.onclick = () => termina(v.id);
+      }
+      d.appendChild(b);
+      box.appendChild(d);
+    });
+  } catch (e) {
+    box.innerHTML = "<p style='text-align:center;color:#b91c1c'>" + e.message + "</p>";
+  }
+}
+
+async function avvia(id) {
+  const km = $("kmp-" + id).value;
+  if (!km) { alert("Inserisci i chilometri prima di partire!"); return; }
+  msg("msg-aut", "Avvio viaggio…", "attesa"); mostra("msg-aut");
+  try {
+    await api("avvia", { id: id, kmPartenza: km });
+    nascondi("msg-aut");
+    caricaViaggi();
+  } catch (e) { msg("msg-aut", e.message, "err"); }
+}
+
+function leggiFoto(input) {
+  return new Promise(resolve => {
+    const f = input && input.files && input.files[0];
+    if (!f) { resolve(null); return; }
+    const r = new FileReader();
+    r.onload = e => resolve({ data: e.target.result, nome: f.name, mime: f.type });
+    r.onerror = () => resolve(null);
+    r.readAsDataURL(f);
+  });
+}
+
+async function termina(id) {
+  msg("msg-aut", "Salvataggio in corso…", "attesa"); mostra("msg-aut");
+  try {
+    const foto = await leggiFoto($("foto-" + id));
+    await api("termina", {
+      id: id,
+      kmArrivo: $("kma-" + id).value,
+      tonnellate: $("ton-" + id).value,
+      oreLavoro: $("ore-" + id).value,
+      fotoData: foto ? foto.data : null,
+      fotoNome: foto ? ("Priamus_Doc_" + id + "_" + foto.nome) : null,
+      fotoMime: foto ? foto.mime : null
+    });
+    nascondi("msg-aut");
+    caricaViaggi();
+  } catch (e) { msg("msg-aut", e.message, "err"); }
+}
+
+// ---------- rifornimento ----------
+function toggleRif(apri) {
+  $("form-rif").classList.toggle("hidden", !apri);
+}
+
+async function salvaRif() {
+  const mezzo = $("r-mezzo").value, litri = $("r-litri").value,
+        costo = $("r-costo").value, km = $("r-km").value;
+  if (!mezzo || !litri || !costo || !km) { alert("Compila tutti i dati!"); return; }
+  msg("msg-aut", "Salvataggio rifornimento…", "attesa"); mostra("msg-aut");
+  try {
+    const foto = await leggiFoto($("r-foto"));
+    const res = await api("rifornimento", {
+      targaMezzo: mezzo, litri: litri, costo: costo, km: km,
+      fotoData: foto ? foto.data : null,
+      fotoNome: foto ? ("Ricevuta_" + mezzo + "_" + foto.nome) : null,
+      fotoMime: foto ? foto.mime : null
+    });
+    msg("msg-aut", res.msg, "ok");
+    toggleRif(false);
+    ["r-litri", "r-costo", "r-km", "r-foto"].forEach(i => $(i).value = "");
+    setTimeout(() => nascondi("msg-aut"), 4000);
+  } catch (e) { msg("msg-aut", e.message, "err"); }
+}
+</script>
+</body>
+</html>
