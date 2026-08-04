@@ -450,9 +450,10 @@ async function assegna() {
 
   try {
     const res = await api("assegna", payload);
-    if (res.flotta) FLOTTA = res.flotta;
     msg("msg-admin", res.msg, "ok");
     setTimeout(() => nascondi("msg-admin"), 2500);
+    // aggiorno la dashboard in sottofondo, senza far aspettare nessuno
+    api("statoFlotta").then(f => { FLOTTA = f; }).catch(() => {});
   } catch (e) {
     msg("msg-admin", "NON salvato (" + payload.autista + " → " + chiave + "): " + e.message, "err");
   }
@@ -513,9 +514,10 @@ function disegnaFlotta(flotta) {
 async function elimina(id, autista) {
   if (!confirm("Eliminare il viaggio di " + autista + "?\nL'operazione non si può annullare.")) return;
   try {
-    const res = await api("elimina", { id: id });
-    if (res.flotta) { FLOTTA = res.flotta; disegnaFlotta(FLOTTA); }
-    else caricaFlotta();
+    await api("elimina", { id: id });
+    FLOTTA = FLOTTA.filter(v => v.id !== id);   // sparisce subito
+    disegnaFlotta(FLOTTA);
+    api("statoFlotta").then(f => { FLOTTA = f; disegnaFlotta(FLOTTA); }).catch(() => {});
   } catch (e) {
     alert(e.message);
     caricaFlotta();
@@ -648,22 +650,36 @@ async function termina(id) {
   msg("msg-aut", "Salvataggio in corso…", "attesa"); mostra("msg-aut");
   const copia = VIAGGI.map(x => Object.assign({}, x));
 
+  mostraViaggi(VIAGGI.filter(x => x.id !== id));   // la card sparisce subito
+
   try {
-    const foto = await leggiFoto(inputFoto);
-    mostraViaggi(VIAGGI.filter(x => x.id !== id));   // sparisce subito
-    const res = await api("termina", {
+    // 1) i DATI partono per primi: e' quello che conta e ci mette poco
+    await api("termina", {
       id: id,
       autista: autistaLoggato,
       kmArrivo: kmArr,
       tonnellate: ton,
-      oreLavoro: ore,
-      fotoData: foto ? foto.data : null,
-      fotoNome: foto ? ("Priamus_Doc_" + id + "_" + foto.nome) : null,
-      fotoMime: foto ? foto.mime : null
+      oreLavoro: ore
     });
-    if (res.viaggi) mostraViaggi(res.viaggi);
     msg("msg-aut", "Viaggio chiuso!", "ok");
     setTimeout(() => nascondi("msg-aut"), 2000);
+
+    // 2) la FOTO viaggia dopo, in sottofondo: l'autista non aspetta
+    const foto = await leggiFoto(inputFoto);
+    if (foto) {
+      msg("msg-aut", "Invio foto in corso…", "info"); mostra("msg-aut");
+      api("foto", {
+        tipo: "viaggio", id: id,
+        fotoData: foto.data,
+        fotoNome: "Priamus_Doc_" + id + "_" + foto.nome,
+        fotoMime: foto.mime
+      }).then(() => {
+        msg("msg-aut", "Foto salvata.", "ok");
+        setTimeout(() => nascondi("msg-aut"), 2000);
+      }).catch(err => {
+        msg("msg-aut", "Viaggio chiuso, ma foto NON caricata: " + err.message, "err");
+      });
+    }
   } catch (e) {
     mostraViaggi(copia);
     msg("msg-aut", "Non salvato: " + e.message, "err");
@@ -679,21 +695,40 @@ async function salvaRif() {
   const mezzo = $("r-mezzo").value, litri = $("r-litri").value,
         costo = $("r-costo").value, km = $("r-km").value;
   if (!mezzo || !litri || !costo || !km) { alert("Compila tutti i dati!"); return; }
+  const idRif = nuovoId();
+  const inputFoto = $("r-foto");
   msg("msg-aut", "Salvataggio rifornimento…", "attesa"); mostra("msg-aut");
+  toggleRif(false);
+
   try {
-    const foto = await leggiFoto($("r-foto"));
-    const res = await api("rifornimento", {
-      idRifornimento: nuovoId(),
-      targaMezzo: mezzo, litri: litri, costo: costo, km: km,
-      fotoData: foto ? foto.data : null,
-      fotoNome: foto ? ("Ricevuta_" + mezzo + "_" + foto.nome) : null,
-      fotoMime: foto ? foto.mime : null
+    await api("rifornimento", {
+      idRifornimento: idRif,
+      targaMezzo: mezzo, litri: litri, costo: costo, km: km
     });
-    msg("msg-aut", res.msg, "ok");
-    toggleRif(false);
+    msg("msg-aut", "Rifornimento salvato!", "ok");
+
+    const foto = await leggiFoto(inputFoto);
     ["r-litri", "r-costo", "r-km", "r-foto"].forEach(i => $(i).value = "");
-    setTimeout(() => nascondi("msg-aut"), 4000);
-  } catch (e) { msg("msg-aut", e.message, "err"); }
+    if (foto) {
+      msg("msg-aut", "Invio ricevuta in corso…", "info");
+      api("foto", {
+        tipo: "rifornimento", id: idRif,
+        fotoData: foto.data,
+        fotoNome: "Ricevuta_" + mezzo + "_" + foto.nome,
+        fotoMime: foto.mime
+      }).then(() => {
+        msg("msg-aut", "Ricevuta salvata.", "ok");
+        setTimeout(() => nascondi("msg-aut"), 2500);
+      }).catch(err => {
+        msg("msg-aut", "Rifornimento salvato, ricevuta NON caricata: " + err.message, "err");
+      });
+    } else {
+      setTimeout(() => nascondi("msg-aut"), 2500);
+    }
+  } catch (e) {
+    toggleRif(true);
+    msg("msg-aut", e.message, "err");
+  }
 }
 </script>
 </body>
