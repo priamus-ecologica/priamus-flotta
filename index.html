@@ -142,6 +142,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
       <input type="text" id="a-nota" placeholder="Es. chiamare all'arrivo…">
     </div>
     <button class="btn orange" onclick="assegna()">Conferma assegnazione</button>
+    <button class="btn ghost" style="margin-top:8px;padding:9px;font-size:12px;" onclick="aggiornaDati()">🔄 Aggiorna autisti, camion e tratte</button>
     <div id="msg-admin" class="msg hidden"></div>
   </div>
 
@@ -187,6 +188,7 @@ const SEGRETO = "priamus-flotta-2026-Kt7xQw9zLm";
 
 // ============================================================
 let DATI = { autisti: [], mezzi: [], rimorchi: [], regole: [], ultimeDestinazioni: {} };
+let FLOTTA = [];
 let autistaLoggato = "";
 
 async function api(azione, extra) {
@@ -231,6 +233,33 @@ function popola(id, elenco) {
 }
 
 // ---------- avvio ----------
+function salvaCache(dati) {
+  try { localStorage.setItem("priamus_elenchi", JSON.stringify(dati)); } catch (e) {}
+}
+function leggiCache() {
+  try {
+    const t = localStorage.getItem("priamus_elenchi");
+    return t ? JSON.parse(t) : null;
+  } catch (e) { return null; }
+}
+
+function riempiElenchi() {
+  popola("nome-autista", DATI.autisti);
+  popola("a-autista", DATI.autisti);
+  popola("a-mezzo", DATI.mezzi);
+  popola("a-rimorchio", DATI.rimorchi);
+  popola("r-mezzo", DATI.mezzi);
+  const sel = $("a-tratta");
+  const scelta = sel.value;
+  sel.innerHTML = '<option value="">-- Seleziona una tratta --</option>';
+  (DATI.regole || []).forEach(r => {
+    const o = document.createElement("option");
+    o.value = r.chiave; o.textContent = r.chiave;
+    sel.appendChild(o);
+  });
+  if (scelta) sel.value = scelta;
+}
+
 window.addEventListener("load", async () => {
   const oggi = new Date();
   $("a-data").value = oggi.getFullYear() + "-" +
@@ -245,23 +274,20 @@ window.addEventListener("load", async () => {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 
+  // 1) elenchi salvati in memoria del telefono: schermata pronta subito
+  const cache = leggiCache();
+  if (cache) { DATI = cache; riempiElenchi(); }
+
+  // 2) aggiornamento dal server (sveglia anche il motore per il login)
   try {
     DATI = await api("elenchi");
-    popola("nome-autista", DATI.autisti);
-    popola("a-autista", DATI.autisti);
-    popola("a-mezzo", DATI.mezzi);
-    popola("a-rimorchio", DATI.rimorchi);
-    popola("r-mezzo", DATI.mezzi);
-    const sel = $("a-tratta");
-    sel.innerHTML = '<option value="">-- Seleziona una tratta --</option>';
-    DATI.regole.forEach(r => {
-      const o = document.createElement("option");
-      o.value = r.chiave; o.textContent = r.chiave;
-      sel.appendChild(o);
-    });
+    salvaCache(DATI);
+    riempiElenchi();
   } catch (e) {
-    msg("err-login", "Errore di caricamento: " + e.message, "err");
-    mostra("err-login");
+    if (!cache) {
+      msg("err-login", "Errore di caricamento: " + e.message, "err");
+      mostra("err-login");
+    }
   }
 });
 
@@ -296,7 +322,9 @@ async function login() {
       autistaLoggato = res.nome;
       $("nome-loggato").textContent = res.nome;
       mostra("v-autista");
-      caricaViaggi();
+      // I viaggi arrivano gia' con la risposta del login: nessuna attesa in piu'
+      if (res.viaggi) mostraViaggi(res.viaggi);
+      else caricaViaggi();
     }
   } catch (e) {
     msg("err-login", e.message, "err");
@@ -359,6 +387,7 @@ async function assegna() {
       dataViaggio: data
     });
     msg("msg-admin", res.msg, "ok");
+    if (res.flotta) FLOTTA = res.flotta;
     DATI.ultimeDestinazioni[mezzo] = r.arrivo;
     $("a-tratta").value = "";
     $("a-nota").value = "";
@@ -368,11 +397,30 @@ async function assegna() {
   }
 }
 
+async function aggiornaDati() {
+  msg("msg-admin", "Aggiornamento elenchi…", "attesa"); mostra("msg-admin");
+  try {
+    DATI = await api("aggiorna");
+    salvaCache(DATI);
+    riempiElenchi();
+    msg("msg-admin", "Elenchi aggiornati.", "ok");
+    setTimeout(() => nascondi("msg-admin"), 2500);
+  } catch (e) { msg("msg-admin", e.message, "err"); }
+}
+
 async function caricaFlotta() {
   const box = $("lista-flotta");
   box.innerHTML = "<p style='text-align:center;color:#64748b'>Caricamento…</p>";
   try {
-    const flotta = await api("statoFlotta");
+    disegnaFlotta(await api("statoFlotta"));
+  } catch (e) {
+    box.innerHTML = "<p style='text-align:center;color:#b91c1c'>" + e.message + "</p>";
+  }
+}
+
+function disegnaFlotta(flotta) {
+  const box = $("lista-flotta");
+  {
     if (!flotta.length) {
       box.innerHTML = "<div class='viaggio' style='text-align:center'>✅ Nessun mezzo in viaggio.</div>";
       return;
@@ -395,8 +443,6 @@ async function caricaFlotta() {
       d.appendChild(b);
       box.appendChild(d);
     });
-  } catch (e) {
-    box.innerHTML = "<p style='text-align:center;color:#b91c1c'>" + e.message + "</p>";
   }
 }
 
@@ -404,11 +450,12 @@ async function elimina(id, autista) {
   if (!confirm("Eliminare il viaggio di " + autista + "?\nL'operazione non si può annullare.")) return;
   try {
     const res = await api("elimina", { id: id });
-    alert(res.msg);
+    if (res.flotta) { FLOTTA = res.flotta; disegnaFlotta(FLOTTA); }
+    else caricaFlotta();
   } catch (e) {
     alert(e.message);
+    caricaFlotta();
   }
-  caricaFlotta();
 }
 
 // ---------- autista ----------
@@ -416,7 +463,15 @@ async function caricaViaggi() {
   const box = $("lista-viaggi");
   box.innerHTML = "<p style='text-align:center;color:#64748b'>Sincronizzazione…</p>";
   try {
-    const viaggi = await api("viaggiAutista", { autista: autistaLoggato });
+    mostraViaggi(await api("viaggiAutista", { autista: autistaLoggato }));
+  } catch (e) {
+    box.innerHTML = "<p style='text-align:center;color:#b91c1c'>" + e.message + "</p>";
+  }
+}
+
+function mostraViaggi(viaggi) {
+  const box = $("lista-viaggi");
+  {
     if (!viaggi.length) {
       box.innerHTML = "<div class='viaggio' style='text-align:center;color:#64748b'>✅ Nessun viaggio in sospeso.</div>";
       return;
@@ -454,8 +509,6 @@ async function caricaViaggi() {
       d.appendChild(b);
       box.appendChild(d);
     });
-  } catch (e) {
-    box.innerHTML = "<p style='text-align:center;color:#b91c1c'>" + e.message + "</p>";
   }
 }
 
@@ -464,9 +517,9 @@ async function avvia(id) {
   if (!km) { alert("Inserisci i chilometri prima di partire!"); return; }
   msg("msg-aut", "Avvio viaggio…", "attesa"); mostra("msg-aut");
   try {
-    await api("avvia", { id: id, kmPartenza: km });
+    const res = await api("avvia", { id: id, kmPartenza: km, autista: autistaLoggato });
     nascondi("msg-aut");
-    caricaViaggi();
+    if (res.viaggi) mostraViaggi(res.viaggi); else caricaViaggi();
   } catch (e) { msg("msg-aut", e.message, "err"); }
 }
 
@@ -485,8 +538,9 @@ async function termina(id) {
   msg("msg-aut", "Salvataggio in corso…", "attesa"); mostra("msg-aut");
   try {
     const foto = await leggiFoto($("foto-" + id));
-    await api("termina", {
+    const res = await api("termina", {
       id: id,
+      autista: autistaLoggato,
       kmArrivo: $("kma-" + id).value,
       tonnellate: $("ton-" + id).value,
       oreLavoro: $("ore-" + id).value,
@@ -495,7 +549,7 @@ async function termina(id) {
       fotoMime: foto ? foto.mime : null
     });
     nascondi("msg-aut");
-    caricaViaggi();
+    if (res.viaggi) mostraViaggi(res.viaggi); else caricaViaggi();
   } catch (e) { msg("msg-aut", e.message, "err"); }
 }
 
