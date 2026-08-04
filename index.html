@@ -97,18 +97,18 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
   <h2>Portale Operativo</h2>
   <div class="grp">
     <label>Accedi come</label>
-    <select id="tipo" onchange="cambiaTipo()">
+    <select id="tipo" onchange="cambiaTipo(); svegliaServer();">
       <option value="autista">Autista</option>
       <option value="responsabile">Responsabile (Admin)</option>
     </select>
   </div>
   <div class="grp" id="g-nome">
     <label>Seleziona il tuo nome</label>
-    <select id="nome-autista"><option>Caricamento…</option></select>
+    <select id="nome-autista" onfocus="svegliaServer()"><option>Caricamento…</option></select>
   </div>
   <div class="grp">
     <label id="lbl-pass">Il tuo PIN personale</label>
-    <input type="password" id="pass" inputmode="numeric" placeholder="••••">
+    <input type="password" id="pass" inputmode="numeric" placeholder="••••" onfocus="svegliaServer()">
   </div>
   <button class="btn" onclick="login()">Accedi</button>
   <div id="err-login" class="msg hidden" style="background:#fee2e2;color:#b91c1c;"></div>
@@ -192,15 +192,54 @@ let FLOTTA = [];
 let VIAGGI = [];
 let autistaLoggato = "";
 
+// Azioni di sola lettura: si possono ripetere senza rischi.
+// Le scritture (assegna, avvia, termina, elimina, rifornimento) NON si ripetono
+// mai in automatico, altrimenti si creerebbero viaggi doppi.
+const LETTURE = ["ping", "elenchi", "login", "viaggiAutista", "statoFlotta", "aggiorna"];
+
+function attendi(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function chiamata(body, msTimeout) {
+  const ctrl = new AbortController();
+  const stop = setTimeout(() => ctrl.abort(), msTimeout || 25000);
+  try {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify(body),   // text/plain: evita il preflight CORS
+      signal: ctrl.signal
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.msg || "Errore sconosciuto");
+    return json.dati;
+  } finally {
+    clearTimeout(stop);
+  }
+}
+
 async function api(azione, extra) {
   const body = Object.assign({ azione: azione, segreto: SEGRETO }, extra || {});
-  const res = await fetch(API_URL, {
-    method: "POST",
-    body: JSON.stringify(body)   // text/plain: evita il preflight CORS
-  });
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.msg || "Errore sconosciuto");
-  return json.dati;
+  const tentativi = LETTURE.indexOf(azione) >= 0 ? 3 : 1;
+
+  let ultimo;
+  for (let i = 0; i < tentativi; i++) {
+    try {
+      return await chiamata(body);
+    } catch (e) {
+      ultimo = e;
+      // se il server risponde "PIN errato" o simili non ha senso insistere
+      if (String(e.message || "").indexOf("errat") >= 0) throw e;
+      if (i < tentativi - 1) await attendi(600 * (i + 1));
+    }
+  }
+  throw ultimo;
+}
+
+// Sveglia il motore di Apps Script mentre l'utente digita il PIN
+let svegliato = false;
+function svegliaServer() {
+  if (svegliato) return;
+  svegliato = true;
+  chiamata({ azione: "ping", segreto: SEGRETO }, 8000).catch(() => {});
 }
 
 function $(id) { return document.getElementById(id); }
@@ -319,6 +358,8 @@ async function login() {
     nascondi("v-login");
     if (res.role === "admin") {
       mostra("v-admin");
+      // prepara la Dashboard in sottofondo: al tocco sara' gia' pronta
+      api("statoFlotta").then(f => { FLOTTA = f; }).catch(() => {});
     } else {
       autistaLoggato = res.nome;
       $("nome-loggato").textContent = res.nome;
@@ -349,7 +390,10 @@ function tab(quale) {
   $("t-dash").classList.toggle("on", !ass);
   $("p-assegna").classList.toggle("hidden", !ass);
   $("p-dash").classList.toggle("hidden", ass);
-  if (!ass) caricaFlotta();
+  if (!ass) {
+    if (FLOTTA && FLOTTA.length) disegnaFlotta(FLOTTA);   // subito il gia' scaricato
+    caricaFlotta();                                       // poi aggiorna
+  }
 }
 
 function preview() {
@@ -417,9 +461,12 @@ async function aggiornaDati() {
 
 async function caricaFlotta() {
   const box = $("lista-flotta");
-  box.innerHTML = "<p style='text-align:center;color:#64748b'>Caricamento…</p>";
+  if (!FLOTTA || !FLOTTA.length) {
+    box.innerHTML = "<p style='text-align:center;color:#64748b'>Caricamento…</p>";
+  }
   try {
-    disegnaFlotta(await api("statoFlotta"));
+    FLOTTA = await api("statoFlotta");
+    disegnaFlotta(FLOTTA);
   } catch (e) {
     box.innerHTML = "<p style='text-align:center;color:#b91c1c'>" + e.message + "</p>";
   }
@@ -468,11 +515,17 @@ async function elimina(id, autista) {
 // ---------- autista ----------
 async function caricaViaggi() {
   const box = $("lista-viaggi");
-  box.innerHTML = "<p style='text-align:center;color:#64748b'>Sincronizzazione…</p>";
+  if (!VIAGGI || !VIAGGI.length) {
+    box.innerHTML = "<p style='text-align:center;color:#64748b'>Sincronizzazione…</p>";
+  }
   try {
     mostraViaggi(await api("viaggiAutista", { autista: autistaLoggato }));
   } catch (e) {
-    box.innerHTML = "<p style='text-align:center;color:#b91c1c'>" + e.message + "</p>";
+    box.innerHTML =
+      "<div class='viaggio' style='text-align:center'>" +
+      "<div style='color:#b91c1c;font-weight:600;margin-bottom:10px'>Connessione non riuscita</div>" +
+      "<div style='font-size:13px;color:#64748b;margin-bottom:12px'>" + e.message + "</div>" +
+      "<button class='btn' onclick='caricaViaggi()'>🔄 Riprova</button></div>";
   }
 }
 
