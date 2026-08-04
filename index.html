@@ -192,10 +192,12 @@ let FLOTTA = [];
 let VIAGGI = [];
 let autistaLoggato = "";
 
-// Azioni di sola lettura: si possono ripetere senza rischi.
-// Le scritture (assegna, avvia, termina, elimina, rifornimento) NON si ripetono
-// mai in automatico, altrimenti si creerebbero viaggi doppi.
-const LETTURE = ["ping", "elenchi", "login", "viaggiAutista", "statoFlotta", "aggiorna"];
+// Tutte le azioni sono ora ripetibili in sicurezza:
+// le scritture portano un id univoco e il server non le duplica.
+function nuovoId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return "id-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+}
 
 function attendi(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -208,7 +210,14 @@ async function chiamata(body, msTimeout) {
       body: JSON.stringify(body),   // text/plain: evita il preflight CORS
       signal: ctrl.signal
     });
-    const json = await res.json();
+    const testo = await res.text();
+    let json;
+    try {
+      json = JSON.parse(testo);
+    } catch (e) {
+      // Apps Script a volte risponde con una pagina di errore: si riprova
+      throw new Error("Il server non era pronto, riprovo…");
+    }
     if (!json.ok) throw new Error(json.msg || "Errore sconosciuto");
     return json.dati;
   } finally {
@@ -218,7 +227,7 @@ async function chiamata(body, msTimeout) {
 
 async function api(azione, extra) {
   const body = Object.assign({ azione: azione, segreto: SEGRETO }, extra || {});
-  const tentativi = LETTURE.indexOf(azione) >= 0 ? 3 : 1;
+  const tentativi = 3;
 
   let ultimo;
   for (let i = 0; i < tentativi; i++) {
@@ -420,6 +429,7 @@ async function assegna() {
   if (!partenza) { alert("Partenza non determinabile: nessun viaggio precedente per questo mezzo!"); return; }
 
   const payload = {
+    idViaggio: nuovoId(),
     autista: $("a-autista").value,
     targaMezzo: mezzo,
     targaRimorchio: $("a-rimorchio").value,
@@ -673,6 +683,7 @@ async function salvaRif() {
   try {
     const foto = await leggiFoto($("r-foto"));
     const res = await api("rifornimento", {
+      idRifornimento: nuovoId(),
       targaMezzo: mezzo, litri: litri, costo: costo, km: km,
       fotoData: foto ? foto.data : null,
       fotoNome: foto ? ("Ricevuta_" + mezzo + "_" + foto.nome) : null,
