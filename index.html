@@ -189,6 +189,7 @@ const SEGRETO = "priamus-flotta-2026-Kt7xQw9zLm";
 // ============================================================
 let DATI = { autisti: [], mezzi: [], rimorchi: [], regole: [], ultimeDestinazioni: {} };
 let FLOTTA = [];
+let VIAGGI = [];
 let autistaLoggato = "";
 
 async function api(azione, extra) {
@@ -374,26 +375,32 @@ async function assegna() {
   let partenza = r.partenza || DATI.ultimeDestinazioni[mezzo];
   if (!partenza) { alert("Partenza non determinabile: nessun viaggio precedente per questo mezzo!"); return; }
 
-  msg("msg-admin", "Creazione viaggio…", "attesa"); mostra("msg-admin");
+  const payload = {
+    autista: $("a-autista").value,
+    targaMezzo: mezzo,
+    targaRimorchio: $("a-rimorchio").value,
+    partenza: partenza,
+    arrivo: r.arrivo,
+    chiave: chiave,
+    nota: $("a-nota").value.trim(),
+    dataViaggio: data
+  };
+
+  // PULIZIA IMMEDIATA: l'admin puo' gia' preparare l'assegnazione successiva
+  DATI.ultimeDestinazioni[mezzo] = r.arrivo;
+  $("a-tratta").value = "";
+  $("a-nota").value = "";
+  $("a-preview").classList.add("hidden");
+  msg("msg-admin", "Invio di " + payload.autista + " → " + chiave + "…", "attesa");
+  mostra("msg-admin");
+
   try {
-    const res = await api("assegna", {
-      autista: $("a-autista").value,
-      targaMezzo: mezzo,
-      targaRimorchio: $("a-rimorchio").value,
-      partenza: partenza,
-      arrivo: r.arrivo,
-      chiave: chiave,
-      nota: $("a-nota").value.trim(),
-      dataViaggio: data
-    });
-    msg("msg-admin", res.msg, "ok");
+    const res = await api("assegna", payload);
     if (res.flotta) FLOTTA = res.flotta;
-    DATI.ultimeDestinazioni[mezzo] = r.arrivo;
-    $("a-tratta").value = "";
-    $("a-nota").value = "";
-    $("a-preview").classList.add("hidden");
+    msg("msg-admin", res.msg, "ok");
+    setTimeout(() => nascondi("msg-admin"), 2500);
   } catch (e) {
-    msg("msg-admin", e.message, "err");
+    msg("msg-admin", "NON salvato (" + payload.autista + " → " + chiave + "): " + e.message, "err");
   }
 }
 
@@ -470,6 +477,7 @@ async function caricaViaggi() {
 }
 
 function mostraViaggi(viaggi) {
+  VIAGGI = viaggi || [];
   const box = $("lista-viaggi");
   {
     if (!viaggi.length) {
@@ -515,42 +523,88 @@ function mostraViaggi(viaggi) {
 async function avvia(id) {
   const km = $("kmp-" + id).value;
   if (!km) { alert("Inserisci i chilometri prima di partire!"); return; }
-  msg("msg-aut", "Avvio viaggio…", "attesa"); mostra("msg-aut");
+
+  // AGGIORNAMENTO IMMEDIATO: la card passa a "In Corso" senza aspettare il server
+  const copia = VIAGGI.map(v => Object.assign({}, v));
+  const v = VIAGGI.find(x => x.id === id);
+  if (v) { v.stato = "In Corso"; mostraViaggi(VIAGGI); }
+  msg("msg-aut", "Salvataggio in corso…", "attesa"); mostra("msg-aut");
+
   try {
     const res = await api("avvia", { id: id, kmPartenza: km, autista: autistaLoggato });
+    if (res.viaggi) mostraViaggi(res.viaggi);
     nascondi("msg-aut");
-    if (res.viaggi) mostraViaggi(res.viaggi); else caricaViaggi();
-  } catch (e) { msg("msg-aut", e.message, "err"); }
+  } catch (e) {
+    mostraViaggi(copia);                       // torno indietro
+    msg("msg-aut", "Non salvato: " + e.message, "err");
+  }
 }
 
+// Comprime la foto PRIMA di spedirla: da ~5 MB a ~200 KB.
+// E' l'intervento che accorcia di piu' l'attesa su "Chiudi viaggio".
 function leggiFoto(input) {
   return new Promise(resolve => {
     const f = input && input.files && input.files[0];
     if (!f) { resolve(null); return; }
+
     const r = new FileReader();
-    r.onload = e => resolve({ data: e.target.result, nome: f.name, mime: f.type });
     r.onerror = () => resolve(null);
+    r.onload = e => {
+      const img = new Image();
+      img.onerror = () => resolve({ data: e.target.result, nome: f.name, mime: f.type });
+      img.onload = () => {
+        try {
+          const MAX = 1400;
+          let w = img.width, h = img.height;
+          if (w > MAX || h > MAX) {
+            if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+            else { w = Math.round(w * MAX / h); h = MAX; }
+          }
+          const c = document.createElement("canvas");
+          c.width = w; c.height = h;
+          c.getContext("2d").drawImage(img, 0, 0, w, h);
+          const piccola = c.toDataURL("image/jpeg", 0.7);
+          resolve({ data: piccola, nome: f.name.replace(/\.[^.]+$/, "") + ".jpg", mime: "image/jpeg" });
+        } catch (err) {
+          resolve({ data: e.target.result, nome: f.name, mime: f.type });
+        }
+      };
+      img.src = e.target.result;
+    };
     r.readAsDataURL(f);
   });
 }
 
 async function termina(id) {
+  // leggo i valori PRIMA di ridisegnare, poi tolgo subito la card
+  const kmArr = $("kma-" + id).value;
+  const ton = $("ton-" + id).value;
+  const ore = $("ore-" + id).value;
+  const inputFoto = $("foto-" + id);
+
   msg("msg-aut", "Salvataggio in corso…", "attesa"); mostra("msg-aut");
+  const copia = VIAGGI.map(x => Object.assign({}, x));
+
   try {
-    const foto = await leggiFoto($("foto-" + id));
+    const foto = await leggiFoto(inputFoto);
+    mostraViaggi(VIAGGI.filter(x => x.id !== id));   // sparisce subito
     const res = await api("termina", {
       id: id,
       autista: autistaLoggato,
-      kmArrivo: $("kma-" + id).value,
-      tonnellate: $("ton-" + id).value,
-      oreLavoro: $("ore-" + id).value,
+      kmArrivo: kmArr,
+      tonnellate: ton,
+      oreLavoro: ore,
       fotoData: foto ? foto.data : null,
       fotoNome: foto ? ("Priamus_Doc_" + id + "_" + foto.nome) : null,
       fotoMime: foto ? foto.mime : null
     });
-    nascondi("msg-aut");
-    if (res.viaggi) mostraViaggi(res.viaggi); else caricaViaggi();
-  } catch (e) { msg("msg-aut", e.message, "err"); }
+    if (res.viaggi) mostraViaggi(res.viaggi);
+    msg("msg-aut", "Viaggio chiuso!", "ok");
+    setTimeout(() => nascondi("msg-aut"), 2000);
+  } catch (e) {
+    mostraViaggi(copia);
+    msg("msg-aut", "Non salvato: " + e.message, "err");
+  }
 }
 
 // ---------- rifornimento ----------
