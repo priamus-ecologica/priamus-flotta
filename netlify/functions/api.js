@@ -102,9 +102,13 @@ async function base() {
   });
 
   const mezzi = {};
-  vM.forEach(r => {
+  const rigaMezzo = {};   // targa -> riga nel foglio ANAGRAFICA_MEZZI
+  vM.forEach((r, i) => {
     const targa = String(r[1] || "").trim();
-    if (targa) mezzi[targa] = String(r[3] || "").trim() || targa;
+    if (targa) {
+      mezzi[targa] = String(r[3] || "").trim() || targa;
+      rigaMezzo[targa] = i + 2;          // +2 perche' partiamo dalla riga 2
+    }
   });
 
   const rimorchi = {};
@@ -123,7 +127,7 @@ async function base() {
     }
   });
 
-  _base = { autisti, pin, mezzi, rimorchi, regole, chiavePerArrivo };
+  _base = { autisti, pin, mezzi, rimorchi, regole, chiavePerArrivo, rigaMezzo };
   _baseTime = ora;
   return _base;
 }
@@ -265,6 +269,19 @@ async function scrivi(range, valori) {
   });
 }
 
+// Scrive PIU' celle in UNA sola chiamata.
+// Prima le scritture partivano in parallelo e Google ne rifiutava qualcuna:
+// era il motivo per cui l'Ora_Inizio a volte non veniva salvata.
+async function scriviBlocco(elenco) {
+  await sheets().spreadsheets.values.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: elenco.map(x => ({ range: x.range, values: x.values }))
+    }
+  });
+}
+
 async function azAssegna(req) {
   // anti-doppione
   if (req.idViaggio) {
@@ -296,12 +313,13 @@ async function azAssegna(req) {
 
 async function azAvvia(req) {
   const t = await trovaRiga(req.id);
-  await Promise.all([
-    scrivi("REGISTRO_VIAGGI!F" + t.riga, [[Number(req.kmPartenza)]]),
-    scrivi("REGISTRO_VIAGGI!P" + t.riga, [["In Corso"]]),
-    scrivi("REGISTRO_VIAGGI!T" + t.riga, [[oraLocale()]])
+  const ora = oraLocale();
+  await scriviBlocco([
+    { range: "REGISTRO_VIAGGI!F" + t.riga, values: [[Number(req.kmPartenza)]] },  // KM partenza
+    { range: "REGISTRO_VIAGGI!P" + t.riga, values: [["In Corso"]] },              // Stato
+    { range: "REGISTRO_VIAGGI!T" + t.riga, values: [[ora]] }                      // Ora_Inizio
   ]);
-  return { msg: "Viaggio avviato!" };
+  return { msg: "Viaggio avviato!", oraInizio: ora };
 }
 
 async function azTermina(req) {
@@ -310,14 +328,29 @@ async function azTermina(req) {
   const kmArr = (req.kmArrivo !== "" && req.kmArrivo != null) ? Number(req.kmArrivo) : "";
   const kmViaggio = (kmArr !== "" && kmPart !== 0) ? (kmArr - kmPart) : "";
 
-  await Promise.all([
-    scrivi("REGISTRO_VIAGGI!G" + t.riga + ":H" + t.riga, [[kmArr, kmViaggio]]),
-    scrivi("REGISTRO_VIAGGI!L" + t.riga + ":M" + t.riga, [[
-      (req.tonnellate !== "" && req.tonnellate != null) ? Number(req.tonnellate) : "",
-      req.oreLavoro || ""
-    ]]),
-    scrivi("REGISTRO_VIAGGI!P" + t.riga + ":Q" + t.riga, [["Completato", oraLocale()]])
-  ]);
+  const scritture = [
+    { range: "REGISTRO_VIAGGI!G" + t.riga + ":H" + t.riga, values: [[kmArr, kmViaggio]] },
+    { range: "REGISTRO_VIAGGI!L" + t.riga + ":M" + t.riga, values: [[
+        (req.tonnellate !== "" && req.tonnellate != null) ? Number(req.tonnellate) : "",
+        req.oreLavoro || ""
+      ]] },
+    { range: "REGISTRO_VIAGGI!P" + t.riga + ":Q" + t.riga, values: [["Completato", oraLocale()]] }
+  ];
+
+  // NUOVO: aggiorno i KM attuali del camion in ANAGRAFICA_MEZZI (colonna E)
+  if (kmArr !== "" && !isNaN(kmArr)) {
+    const b = await base();
+    const targa = String(t.dati[4] || "").trim();
+    const rigaAnagrafica = b.rigaMezzo ? b.rigaMezzo[targa] : null;
+    if (rigaAnagrafica) {
+      scritture.push({
+        range: "ANAGRAFICA_MEZZI!E" + rigaAnagrafica,
+        values: [[kmArr]]
+      });
+    }
+  }
+
+  await scriviBlocco(scritture);
   return { msg: "Viaggio chiuso correttamente!" };
 }
 
@@ -368,6 +401,17 @@ async function azRifornimento(req) {
       values: [[id, adesso, req.targaMezzo, Number(req.litri), Number(req.costo), Number(req.km), ""]]
     }
   });
+
+  // NUOVO: anche il rifornimento aggiorna i KM attuali del camion
+  try {
+    const b = await base();
+    const targa = String(req.targaMezzo || "").trim();
+    const riga = b.rigaMezzo ? b.rigaMezzo[targa] : null;
+    if (riga && req.km !== "" && !isNaN(Number(req.km))) {
+      await scrivi("ANAGRAFICA_MEZZI!E" + riga, [[Number(req.km)]]);
+    }
+  } catch (e) {}
+
   return { msg: "Rifornimento salvato!", id };
 }
 
