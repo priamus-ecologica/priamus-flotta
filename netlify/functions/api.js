@@ -20,7 +20,8 @@ const SEGRETO = process.env.API_SEGRETO;
 const PASSWORD_ADMIN = process.env.PASSWORD_ADMIN;
 
 // Quante righe recenti del registro considerare per i viaggi attivi
-const FINESTRA = 400;
+const FINESTRA = 400;      // righe recenti usate per i viaggi attivi
+const FINESTRA_MAX = 5000; // tetto di righe lette dal registro
 
 // ---- connessione a Google (riusata tra le richieste finche' la funzione resta calda)
 let _sheets = null;
@@ -88,12 +89,21 @@ async function base() {
   const ora = Date.now();
   if (_base && ora - _baseTime < 90000) return _base;
 
-  const [vA, vM, vR, vReg] = await Promise.all([
-    leggiTesto("AUTISTI!A2:C200"),
-    leggiTesto("ANAGRAFICA_MEZZI!A2:E200"),
-    leggiTesto("ANAGRAFICA_RIMORCHI!A2:B200"),
-    leggiTesto("REGOLE_VIAGGI!A2:C300")
-  ]);
+  // UNA sola richiesta per tutte e quattro le anagrafiche.
+  // Prima erano 4 richieste separate: con piu' autisti insieme
+  // si superava il limite di Google e arrivavano gli errori.
+  const risp = await sheets().spreadsheets.values.batchGet({
+    spreadsheetId: SHEET_ID,
+    ranges: [
+      "AUTISTI!A2:C200",
+      "ANAGRAFICA_MEZZI!A2:E200",
+      "ANAGRAFICA_RIMORCHI!A2:B200",
+      "REGOLE_VIAGGI!A2:C300"
+    ]
+  });
+  const blocchi = (risp.data.valueRanges || []).map(v => v.values || []);
+  const vA = blocchi[0] || [], vM = blocchi[1] || [];
+  const vR = blocchi[2] || [], vReg = blocchi[3] || [];
 
   const autisti = [], pin = {};
   vA.forEach(r => {
@@ -134,16 +144,27 @@ async function base() {
 
 function svuotaCache() { _base = null; _baseTime = 0; }
 
-async function coda() {
-  // Legge id (col A) di tutto il registro per sapere quante righe ci sono,
-  // poi la finestra recente completa. Due letture leggere.
-  const colA = await leggiTesto("REGISTRO_VIAGGI!A1:A100000");
-  const ultime = colA.length;                     // riga dell'ultimo dato
-  const da = Math.max(2, ultime - FINESTRA + 1);
-  if (ultime < 2) return { righe: [], primaRiga: 2 };
-  const righe = await leggi("REGISTRO_VIAGGI!A" + da + ":T" + ultime);
-  return { righe, primaRiga: da };
+// Cache brevissima del registro: piu' azioni della stessa schermata
+// non rileggono lo stesso dato due volte.
+let _coda = null;
+let _codaTime = 0;
+
+async function coda(fresca) {
+  const ora = Date.now();
+  if (!fresca && _coda && ora - _codaTime < 8000) return _coda;
+
+  // UNA sola richiesta: prima ne servivano due.
+  const tutte = await leggi("REGISTRO_VIAGGI!A2:T" + (FINESTRA_MAX + 1));
+  const n = tutte.length;
+  const da = Math.max(0, n - FINESTRA);
+  const righe = tutte.slice(da);
+
+  _coda = { righe: righe, primaRiga: 2 + da };
+  _codaTime = ora;
+  return _coda;
 }
+
+function svuotaCoda() { _coda = null; _codaTime = 0; }
 
 function etich(mappa, targa) {
   const t = String(targa || "").trim();
@@ -178,14 +199,22 @@ async function azViaggiAutista(req) {
   const c = await coda();
   const cercato = String(req.autista || "").trim().toLowerCase();
 
+  // PRIMO PASSAGGIO: per ogni camion trovo l'ultimo KM di arrivo registrato.
+  // Va fatto su TUTTE le righe prima di costruire l'elenco, altrimenti il
+  // viaggio da avviare (che e' fra i piu' recenti) non trova ancora il dato.
   const ultimiKm = {};
-  const viaggi = [];
-
   for (let i = c.righe.length - 1; i >= 0; i--) {
     const r = c.righe[i];
     const targa = String(r[4] || "").trim();
     const km = r[6] !== undefined && r[6] !== "" ? String(r[6]) : "";
     if (targa && km && !ultimiKm[targa]) ultimiKm[targa] = km;
+  }
+
+  // SECONDO PASSAGGIO: i viaggi dell'autista
+  const viaggi = [];
+  for (let i = c.righe.length - 1; i >= 0; i--) {
+    const r = c.righe[i];
+    const targa = String(r[4] || "").trim();
 
     if (String(r[2] || "").trim().toLowerCase() === cercato) {
       const stato = String(r[15] || "").trim();
@@ -285,8 +314,8 @@ async function scriviBlocco(elenco) {
 async function azAssegna(req) {
   // anti-doppione
   if (req.idViaggio) {
-    const colA = await leggiTesto("REGISTRO_VIAGGI!A2:A100000");
-    for (const r of colA) {
+    const c = await coda();
+    for (const r of c.righe) {
       if (String(r[0]) === String(req.idViaggio)) {
         return { msg: "Viaggio gia' assegnato a " + req.autista };
       }
@@ -308,6 +337,7 @@ async function azAssegna(req) {
       ]]
     }
   });
+  svuotaCoda();
   return { msg: "Viaggio assegnato a " + req.autista };
 }
 
@@ -319,6 +349,7 @@ async function azAvvia(req) {
     { range: "REGISTRO_VIAGGI!P" + t.riga, values: [["In Corso"]] },              // Stato
     { range: "REGISTRO_VIAGGI!T" + t.riga, values: [[ora]] }                      // Ora_Inizio
   ]);
+  svuotaCoda();
   return { msg: "Viaggio avviato!", oraInizio: ora };
 }
 
@@ -351,6 +382,7 @@ async function azTermina(req) {
   }
 
   await scriviBlocco(scritture);
+  svuotaCoda();
   return { msg: "Viaggio chiuso correttamente!" };
 }
 
@@ -379,6 +411,7 @@ async function azElimina(req) {
       }]
     }
   });
+  svuotaCoda();
   return { msg: "Viaggio di " + autista + " eliminato." };
 }
 
@@ -488,7 +521,7 @@ exports.handler = async function (event) {
     switch (req.azione) {
       case "ping":          dati = { pong: true }; break;
       case "elenchi":       dati = await azElenchi(); break;
-      case "aggiorna":      svuotaCache(); dati = await azElenchi(); break;
+      case "aggiorna":      svuotaCache(); svuotaCoda(); dati = await azElenchi(); break;
       case "login":         dati = await azLogin(req); break;
       case "viaggiAutista": dati = await azViaggiAutista(req); break;
       case "statoFlotta":   dati = await azStatoFlotta(); break;
