@@ -20,7 +20,7 @@ const SEGRETO = process.env.API_SEGRETO;
 const PASSWORD_ADMIN = process.env.PASSWORD_ADMIN;
 
 // Quante righe recenti del registro considerare per i viaggi attivi
-const FINESTRA = 400;      // righe recenti usate per i viaggi attivi
+const FINESTRA = 1500;     // righe recenti usate per i viaggi attivi
 const FINESTRA_MAX = 5000; // tetto di righe lette dal registro
 
 // ---- connessione a Google (riusata tra le richieste finche' la funzione resta calda)
@@ -67,6 +67,21 @@ function serialToData(n) {
   const gg = String(d.getUTCDate()).padStart(2, "0");
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   return gg + "/" + mm + "/" + d.getUTCFullYear();
+}
+
+function serialToISO(n) {
+  if (typeof n !== "number") return "";
+  const d = new Date(Math.round((n - 25569) * 86400 * 1000));
+  return d.getUTCFullYear() + "-" +
+         String(d.getUTCMonth() + 1).padStart(2, "0") + "-" +
+         String(d.getUTCDate()).padStart(2, "0");
+}
+
+// "2026-08" a partire dal numero seriale del foglio
+function serialToMese(n) {
+  if (typeof n !== "number") return "";
+  const d = new Date(Math.round((n - 25569) * 86400 * 1000));
+  return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0");
 }
 
 function oraLocale() {
@@ -154,7 +169,7 @@ async function coda(fresca) {
   if (!fresca && _coda && ora - _codaTime < 8000) return _coda;
 
   // UNA sola richiesta: prima ne servivano due.
-  const tutte = await leggi("REGISTRO_VIAGGI!A2:T" + (FINESTRA_MAX + 1));
+  const tutte = await leggi("REGISTRO_VIAGGI!A2:V" + (FINESTRA_MAX + 1));
   const n = tutte.length;
   const da = Math.max(0, n - FINESTRA);
   const righe = tutte.slice(da);
@@ -255,7 +270,11 @@ async function azStatoFlotta() {
         chiave: String(r[18] || ""),
         nota: String(r[17] || ""),
         stato,
-        data: serialToData(r[1])
+        data: serialToData(r[1]),
+        // serve al modulo di modifica dell'admin
+        targaMezzo: String(r[4] || "").trim(),
+        targaRimorchio: String(r[10] || "").trim(),
+        dataISO: serialToISO(r[1])
       });
     }
   }
@@ -354,10 +373,15 @@ async function azAvvia(req) {
 }
 
 async function azTermina(req) {
+  // I KM di arrivo sono OBBLIGATORI: senza, il viaggio non si chiude.
+  if (req.kmArrivo === "" || req.kmArrivo == null || isNaN(Number(req.kmArrivo))) {
+    throw new Error("Inserisci i KM di arrivo per chiudere il viaggio.");
+  }
+
   const t = await trovaRiga(req.id);
   const kmPart = Number(t.dati[5]) || 0;
-  const kmArr = (req.kmArrivo !== "" && req.kmArrivo != null) ? Number(req.kmArrivo) : "";
-  const kmViaggio = (kmArr !== "" && kmPart !== 0) ? (kmArr - kmPart) : "";
+  const kmArr = Number(req.kmArrivo);
+  const kmViaggio = (kmPart !== 0) ? (kmArr - kmPart) : "";
 
   const scritture = [
     { range: "REGISTRO_VIAGGI!G" + t.riga + ":H" + t.riga, values: [[kmArr, kmViaggio]] },
@@ -365,7 +389,12 @@ async function azTermina(req) {
         (req.tonnellate !== "" && req.tonnellate != null) ? Number(req.tonnellate) : "",
         req.oreLavoro || ""
       ]] },
-    { range: "REGISTRO_VIAGGI!P" + t.riga + ":Q" + t.riga, values: [["Completato", oraLocale()]] }
+    { range: "REGISTRO_VIAGGI!P" + t.riga + ":Q" + t.riga, values: [["Completato", oraLocale()]] },
+    // NUOVO: U = numero di viaggi svolti, V = nota scritta dall'autista
+    { range: "REGISTRO_VIAGGI!U" + t.riga + ":V" + t.riga, values: [[
+        (req.numeroViaggi !== "" && req.numeroViaggi != null) ? Number(req.numeroViaggi) : "",
+        req.notaAutista || ""
+      ]] }
   ];
 
   // NUOVO: aggiorno i KM attuali del camion in ANAGRAFICA_MEZZI (colonna E)
@@ -485,11 +514,185 @@ async function azFoto(req) {
   const colA = await leggiTesto(nomeFoglio + "!A1:A100000");
   for (let i = colA.length - 1; i >= 1; i--) {
     if (String(colA[i][0]) === String(req.id)) {
-      await scrivi(nomeFoglio + "!" + colonna + (i + 1), [[url]]);
+      const cella = nomeFoglio + "!" + colonna + (i + 1);
+      // NUOVO: se ci sono gia' altre foto, il nuovo link si aggiunge in coda
+      let esistente = "";
+      try {
+        const attuale = await leggiTesto(cella);
+        esistente = (attuale[0] && attuale[0][0]) ? String(attuale[0][0]).trim() : "";
+      } catch (e) {}
+      const finale = esistente ? (esistente + "\n" + url) : url;
+      await scrivi(cella, [[finale]]);
       return { msg: "Foto salvata." };
     }
   }
   return { msg: "Foto caricata ma riga non trovata.", url };
+}
+
+
+// ============================================================
+//  MODIFICA di un viaggio gia' assegnato (solo admin)
+//  Ammessa su "Assegnato" e "In Corso", mai sui Completati.
+// ============================================================
+async function azModifica(req) {
+  const t = await trovaRiga(req.id);
+  const stato = String(t.dati[15] || "").trim();
+  if (stato === "Completato") {
+    throw new Error("Viaggio gia' completato: non si puo' modificare.");
+  }
+
+  const scritture = [];
+
+  if (req.dataViaggio) {
+    scritture.push({ range: "REGISTRO_VIAGGI!B" + t.riga, values: [[dataSerial(req.dataViaggio)]] });
+  }
+  if (req.autista) {
+    scritture.push({ range: "REGISTRO_VIAGGI!C" + t.riga, values: [[req.autista]] });
+  }
+  if (req.targaMezzo) {
+    scritture.push({ range: "REGISTRO_VIAGGI!E" + t.riga, values: [[req.targaMezzo]] });
+  }
+  if (req.targaRimorchio != null) {
+    scritture.push({ range: "REGISTRO_VIAGGI!K" + t.riga, values: [[req.targaRimorchio]] });
+  }
+  if (req.chiave) {
+    scritture.push({ range: "REGISTRO_VIAGGI!I" + t.riga + ":J" + t.riga,
+                     values: [[req.partenza || "", req.arrivo || ""]] });
+    scritture.push({ range: "REGISTRO_VIAGGI!S" + t.riga, values: [[req.chiave]] });
+  }
+  if (req.nota != null) {
+    scritture.push({ range: "REGISTRO_VIAGGI!R" + t.riga, values: [[req.nota]] });
+  }
+
+  if (!scritture.length) return { msg: "Nessuna modifica da salvare." };
+
+  await scriviBlocco(scritture);
+  svuotaCoda();
+  return { msg: "Viaggio aggiornato." };
+}
+
+// ============================================================
+//  RESOCONTI: consumi e attivita' per camion, mese per mese
+// ============================================================
+async function azResoconti(req) {
+  const b = await base();
+
+  const [righeV, righeR] = await Promise.all([
+    leggi("REGISTRO_VIAGGI!A2:V" + (FINESTRA_MAX + 1)),
+    leggi("REGISTRO_RIFORNIMENTI!A2:G5000")
+  ]);
+
+  // elenco dei mesi che hanno almeno un dato
+  const insieme = {};
+  righeV.forEach(r => { const m = serialToMese(r[1]); if (m) insieme[m] = true; });
+  righeR.forEach(r => { const m = serialToMese(r[1]); if (m) insieme[m] = true; });
+  const oggi = new Date();
+  const meseCorrente = oggi.getFullYear() + "-" + String(oggi.getMonth() + 1).padStart(2, "0");
+  insieme[meseCorrente] = true;
+  const mesi = Object.keys(insieme).sort().reverse();
+  const mese = req.mese || (mesi.indexOf(meseCorrente) >= 0 ? meseCorrente : (mesi[0] || meseCorrente));
+
+  function vuoto() {
+    return { viaggi: 0, rotazioni: 0, km: 0, tonnellate: 0, ore: 0, litri: 0, spesa: 0 };
+  }
+
+  const perTarga = {};
+  const storico = {};   // targa -> { mese -> {km, litri} }
+
+  righeV.forEach(r => {
+    const targa = String(r[4] || "").trim();
+    if (!targa) return;
+    const m = serialToMese(r[1]);
+    if (!m) return;
+
+    const km = Number(r[7]) || 0;
+    if (!storico[targa]) storico[targa] = {};
+    if (!storico[targa][m]) storico[targa][m] = { km: 0, litri: 0 };
+    storico[targa][m].km += km;
+
+    if (m !== mese) return;
+    if (!perTarga[targa]) perTarga[targa] = vuoto();
+    const p = perTarga[targa];
+    p.viaggi += 1;
+    p.rotazioni += Number(r[20]) || 0;
+    p.km += km;
+    p.tonnellate += Number(r[11]) || 0;
+    const ore = parseOre(r[12]);
+    p.ore += ore;
+  });
+
+  righeR.forEach(r => {
+    const targa = String(r[2] || "").trim();
+    if (!targa) return;
+    const m = serialToMese(r[1]);
+    if (!m) return;
+
+    const litri = Number(r[3]) || 0;
+    if (!storico[targa]) storico[targa] = {};
+    if (!storico[targa][m]) storico[targa][m] = { km: 0, litri: 0 };
+    storico[targa][m].litri += litri;
+
+    if (m !== mese) return;
+    if (!perTarga[targa]) perTarga[targa] = vuoto();
+    perTarga[targa].litri += litri;
+    perTarga[targa].spesa += Number(r[4]) || 0;
+  });
+
+  const camion = Object.keys(perTarga).map(targa => {
+    const p = perTarga[targa];
+    return {
+      targa: targa,
+      nome: b.mezzi[targa] || targa,
+      viaggi: p.viaggi,
+      rotazioni: p.rotazioni,
+      km: Math.round(p.km),
+      tonnellate: Math.round(p.tonnellate * 10) / 10,
+      ore: Math.round(p.ore * 10) / 10,
+      litri: Math.round(p.litri * 10) / 10,
+      spesa: Math.round(p.spesa * 100) / 100,
+      consumo: (p.km > 0 && p.litri > 0) ? Math.round(p.litri / p.km * 1000) / 10 : null,
+      euroKm: (p.km > 0 && p.spesa > 0) ? Math.round(p.spesa / p.km * 1000) / 1000 : null
+    };
+  }).sort((a, b2) => b2.km - a.km);
+
+  // andamento degli ultimi 6 mesi, solo dove il consumo e' calcolabile
+  const ultimi = mesi.slice().sort().slice(-6);
+  const andamento = {};
+  Object.keys(storico).forEach(targa => {
+    andamento[targa] = ultimi.map(m => {
+      const d = storico[targa][m];
+      const c = (d && d.km > 0 && d.litri > 0) ? Math.round(d.litri / d.km * 1000) / 10 : null;
+      return { mese: m, consumo: c };
+    });
+  });
+
+  const tot = camion.reduce((a, c) => ({
+    viaggi: a.viaggi + c.viaggi, rotazioni: a.rotazioni + c.rotazioni,
+    km: a.km + c.km, tonnellate: a.tonnellate + c.tonnellate, ore: a.ore + c.ore,
+    litri: a.litri + c.litri, spesa: a.spesa + c.spesa
+  }), { viaggi: 0, rotazioni: 0, km: 0, tonnellate: 0, ore: 0, litri: 0, spesa: 0 });
+
+  tot.tonnellate = Math.round(tot.tonnellate * 10) / 10;
+  tot.ore = Math.round(tot.ore * 10) / 10;
+  tot.litri = Math.round(tot.litri * 10) / 10;
+  tot.spesa = Math.round(tot.spesa * 100) / 100;
+  tot.consumo = (tot.km > 0 && tot.litri > 0) ? Math.round(tot.litri / tot.km * 1000) / 10 : null;
+  tot.euroKm = (tot.km > 0 && tot.spesa > 0) ? Math.round(tot.spesa / tot.km * 1000) / 1000 : null;
+
+  return { mese: mese, mesi: mesi, camion: camion, totali: tot, mesiGrafico: ultimi, andamento: andamento };
+}
+
+// Le ore possono arrivare come "4:30", "4,5" o numero: le riporto a decimale
+function parseOre(v) {
+  if (v == null || v === "") return 0;
+  if (typeof v === "number") return v < 1 ? v * 24 : v;   // se e' un orario del foglio
+  const t = String(v).trim().replace(",", ".");
+  if (t.indexOf(":") >= 0) {
+    const p = t.split(":");
+    return (Number(p[0]) || 0) + (Number(p[1]) || 0) / 60;
+  }
+  const n = Number(t);
+  return isNaN(n) ? 0 : n;
 }
 
 // ------------------------------------------------------------
@@ -531,6 +734,8 @@ exports.handler = async function (event) {
       case "elimina":       dati = await azElimina(req); break;
       case "rifornimento":  dati = await azRifornimento(req); break;
       case "foto":          dati = await azFoto(req); break;
+      case "modifica":      dati = await azModifica(req); break;
+      case "resoconti":     dati = await azResoconti(req); break;
       default: return rispondi({ ok: false, msg: "Azione sconosciuta: " + req.azione });
     }
     return rispondi({ ok: true, dati });
