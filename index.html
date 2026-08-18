@@ -121,9 +121,10 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
   <div class="tabs">
     <button class="tab on" id="t-ass" onclick="tab('ass')">📝 Assegna</button>
     <button class="tab" id="t-dash" onclick="tab('dash')">📊 Dashboard</button>
+    <button class="tab" id="t-res" onclick="tab('res')">⛽ Resoconti</button>
   </div>
 
-  <div id="p-assegna">
+  <div id="p-ass">
     <div class="grp">
       <label>📅 Data dei viaggi</label>
       <input type="date" id="a-data">
@@ -149,7 +150,19 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
   <div id="p-dash" class="hidden">
     <p class="sub">Situazione flotta in tempo reale</p>
     <button class="btn" style="padding:10px;font-size:13px;" onclick="caricaFlotta()">🔄 Aggiorna</button>
+    <div id="msg-dash" class="msg hidden"></div>
     <div id="lista-flotta" style="margin-top:16px;"></div>
+  </div>
+
+  <div id="p-res" class="hidden">
+    <div class="grp">
+      <label>Mese</label>
+      <select id="r-mese" onchange="caricaResoconti()"></select>
+    </div>
+    <div id="res-kpi"></div>
+    <div id="res-lista"></div>
+    <div id="res-dett"></div>
+    <div id="res-msg" class="msg hidden"></div>
   </div>
 
   <button class="btn ghost" style="margin-top:26px;" onclick="esci()">Esci</button>
@@ -394,15 +407,15 @@ function esci() {
 
 // ---------- admin ----------
 function tab(quale) {
-  const ass = quale === "ass";
-  $("t-ass").classList.toggle("on", ass);
-  $("t-dash").classList.toggle("on", !ass);
-  $("p-assegna").classList.toggle("hidden", !ass);
-  $("p-dash").classList.toggle("hidden", ass);
-  if (!ass) {
+  ["ass", "dash", "res"].forEach(k => {
+    $("t-" + k).classList.toggle("on", k === quale);
+    $("p-" + k).classList.toggle("hidden", k !== quale);
+  });
+  if (quale === "dash") {
     if (FLOTTA && FLOTTA.length) disegnaFlotta(FLOTTA);   // subito il gia' scaricato
     caricaFlotta();                                       // poi aggiorna
   }
+  if (quale === "res") caricaResoconti();
 }
 
 function preview() {
@@ -500,7 +513,30 @@ function disegnaFlotta(flotta) {
         "<div style='font-size:14px;margin-top:8px'><b>" + (v.chiave || (v.partenza + " ➔ " + v.arrivo)) + "</b></div>" +
         "<div style='font-size:12px;margin-top:8px;color:var(--light)'>🚚 " + v.mezzo + " | 🔗 " + v.rimorchio +
         "<br>📅 " + v.data + "</div>" +
-        (v.nota ? "<div class='nota'>📌 " + v.nota + "</div>" : "");
+        (v.nota ? "<div class='nota'>📌 " + v.nota + "</div>" : "") +
+        // modulo di modifica, nascosto finche' non lo si apre
+        "<div id='mod-" + v.id + "' class='hidden' style='margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)'>" +
+          "<div class='grp'><label>Data</label><input type='date' id='m-data-" + v.id + "' value='" + (v.dataISO || "") + "'></div>" +
+          "<div class='grp'><label>Autista</label><select id='m-aut-" + v.id + "'>" + opzioni(DATI.autisti, v.autista) + "</select></div>" +
+          "<div class='grp'><label>Camion</label><select id='m-mez-" + v.id + "'>" + opzioni(DATI.mezzi, v.targaMezzo) + "</select></div>" +
+          "<div class='grp'><label>Rimorchio</label><select id='m-rim-" + v.id + "'>" + opzioni(DATI.rimorchi, v.targaRimorchio) + "</select></div>" +
+          "<div class='grp'><label>Tratta</label><select id='m-tra-" + v.id + "'>" + opzioniTratte(v.chiave) + "</select></div>" +
+          "<div class='grp'><label>Nota per l'autista</label><input type='text' id='m-not-" + v.id + "' value=\"" + String(v.nota || "").replace(/"/g, "&quot;") + "\"></div>" +
+          "<button class='btn orange' style='padding:11px;font-size:13px' onclick=\"salvaModifica('" + v.id + "')\">💾 Salva modifiche</button>" +
+        "</div>";
+
+      const bm = document.createElement("button");
+      bm.className = "btn ghost";
+      bm.style.cssText = "padding:9px;font-size:12px;margin-top:12px";
+      bm.textContent = "✏️ Modifica viaggio";
+      bm.onclick = () => {
+        const f = $("mod-" + v.id);
+        const aperto = !f.classList.contains("hidden");
+        f.classList.toggle("hidden", aperto);
+        bm.textContent = aperto ? "✏️ Modifica viaggio" : "✖️ Chiudi modifica";
+      };
+      d.appendChild(bm);
+
       const b = document.createElement("button");
       b.className = "btn danger";
       b.textContent = "🗑️ Elimina viaggio";
@@ -508,6 +544,60 @@ function disegnaFlotta(flotta) {
       d.appendChild(b);
       box.appendChild(d);
     });
+  }
+}
+
+// Costruisce le <option> di un elenco, con quella giusta gia' selezionata
+function opzioni(elenco, scelto) {
+  return (elenco || []).map(x => {
+    const val = (typeof x === "string") ? x : x.targa;
+    const lab = (typeof x === "string") ? x : x.label;
+    return "<option value=\"" + String(val).replace(/"/g, "&quot;") + "\"" +
+           (val === scelto ? " selected" : "") + ">" + lab + "</option>";
+  }).join("");
+}
+
+function opzioniTratte(scelta) {
+  return (DATI.regole || []).map(r =>
+    "<option value=\"" + String(r.chiave).replace(/"/g, "&quot;") + "\"" +
+    (r.chiave === scelta ? " selected" : "") + ">" + r.chiave + "</option>"
+  ).join("");
+}
+
+// Salva le modifiche a un viaggio gia' assegnato o in corso
+async function salvaModifica(id) {
+  const v = FLOTTA.find(x => x.id === id);
+  if (!v) return;
+
+  const chiave = $("m-tra-" + id).value;
+  const mezzo = $("m-mez-" + id).value;
+  const regola = (DATI.regole || []).find(r => r.chiave === chiave);
+
+  // se la tratta e' cambiata ricalcolo partenza e arrivo, altrimenti li lascio
+  let partenza = v.partenza, arrivo = v.arrivo;
+  if (regola && chiave !== v.chiave) {
+    arrivo = regola.arrivo;
+    partenza = regola.partenza || DATI.ultimeDestinazioni[mezzo] || v.partenza;
+  }
+
+  msg("msg-dash", "Salvataggio modifiche…", "attesa"); mostra("msg-dash");
+  try {
+    const res = await api("modifica", {
+      id: id,
+      dataViaggio: $("m-data-" + id).value,
+      autista: $("m-aut-" + id).value,
+      targaMezzo: mezzo,
+      targaRimorchio: $("m-rim-" + id).value,
+      chiave: chiave,
+      partenza: partenza,
+      arrivo: arrivo,
+      nota: $("m-not-" + id).value.trim()
+    });
+    msg("msg-dash", res.msg, "ok");
+    setTimeout(() => nascondi("msg-dash"), 2500);
+    caricaFlotta();
+  } catch (e) {
+    msg("msg-dash", "Modifica NON salvata: " + e.message, "err");
   }
 }
 
@@ -564,10 +654,18 @@ function mostraViaggi(viaggi) {
         h += "<hr><div class='grp'><label>KM partenza</label>" +
              "<input type='number' inputmode='numeric' id='kmp-" + v.id + "' value='" + v.kmPrecedente + "'></div>";
       } else {
-        h += "<hr><div class='grp'><label>KM arrivo</label><input type='number' inputmode='numeric' id='kma-" + v.id + "'></div>" +
+        h += "<hr><div class='grp'><label>KM arrivo <span style='color:#dc2626'>*</span></label>" +
+             "<input type='number' inputmode='numeric' id='kma-" + v.id + "' oninput=\"controllaKm('" + v.id + "')\">" +
+             "<div class='hint'>Obbligatorio: senza i KM il viaggio non si chiude.</div></div>" +
+             "<div class='grp'><label>Numero viaggi</label>" +
+             "<input type='number' inputmode='numeric' min='1' step='1' id='nv-" + v.id + "' value='1'></div>" +
              "<div class='grp'><label>Tonnellate</label><input type='number' step='0.01' inputmode='decimal' id='ton-" + v.id + "'></div>" +
              "<div class='grp'><label>Ore (es. 4:30)</label><input type='text' id='ore-" + v.id + "'></div>" +
-             "<div class='grp'><label>Foto formulario</label><input type='file' accept='image/*' capture='environment' id='foto-" + v.id + "'></div>";
+             "<div class='grp'><label>Nota (facoltativa)</label>" +
+             "<input type='text' id='nau-" + v.id + "' placeholder='Es. traffico, attesa al carico…'></div>" +
+             "<div class='grp'><label>Foto formulario</label>" +
+             "<input type='file' accept='image/*' multiple id='foto-" + v.id + "'>" +
+             "<div class='hint'>Puoi selezionarne anche più di una.</div></div>";
       }
       d.innerHTML = h;
 
@@ -577,12 +675,25 @@ function mostraViaggi(viaggi) {
         b.onclick = () => avvia(v.id);
       } else {
         b.className = "btn green"; b.textContent = "✅ Chiudi viaggio";
+        b.id = "btn-term-" + v.id;
         b.onclick = () => termina(v.id);
       }
       d.appendChild(b);
       box.appendChild(d);
+      if (v.stato !== "Assegnato") controllaKm(v.id);   // parte disattivato
     });
   }
+}
+
+// Il pulsante "Chiudi viaggio" resta spento finche' non ci sono i KM di arrivo
+function controllaKm(id) {
+  const campo = $("kma-" + id);
+  const puls = $("btn-term-" + id);
+  if (!campo || !puls) return;
+  const ok = campo.value !== "" && !isNaN(Number(campo.value));
+  puls.disabled = !ok;
+  puls.style.opacity = ok ? "1" : "0.45";
+  puls.style.cursor = ok ? "pointer" : "not-allowed";
 }
 
 async function avvia(id) {
@@ -607,9 +718,22 @@ async function avvia(id) {
 
 // Comprime la foto PRIMA di spedirla: da ~5 MB a ~200 KB.
 // E' l'intervento che accorcia di piu' l'attesa su "Chiudi viaggio".
+// Legge TUTTE le foto scelte (il modulo del formulario ne accetta piu' di una)
+function leggiFotoTutte(input) {
+  const files = (input && input.files) ? Array.prototype.slice.call(input.files) : [];
+  if (!files.length) return Promise.resolve([]);
+  return files.reduce((catena, f) => catena.then(elenco =>
+    leggiUnFile(f).then(x => { if (x) elenco.push(x); return elenco; })
+  ), Promise.resolve([]));
+}
+
 function leggiFoto(input) {
+  const f = input && input.files && input.files[0];
+  return leggiUnFile(f);
+}
+
+function leggiUnFile(f) {
   return new Promise(resolve => {
-    const f = input && input.files && input.files[0];
     if (!f) { resolve(null); return; }
 
     const r = new FileReader();
@@ -641,10 +765,18 @@ function leggiFoto(input) {
 }
 
 async function termina(id) {
-  // leggo i valori PRIMA di ridisegnare, poi tolgo subito la card
   const kmArr = $("kma-" + id).value;
+
+  // I KM di arrivo sono OBBLIGATORI
+  if (kmArr === "" || isNaN(Number(kmArr))) {
+    alert("Inserisci i KM di arrivo prima di chiudere il viaggio.");
+    return;
+  }
+
   const ton = $("ton-" + id).value;
   const ore = $("ore-" + id).value;
+  const nViaggi = $("nv-" + id) ? $("nv-" + id).value : "";
+  const notaAut = $("nau-" + id) ? $("nau-" + id).value.trim() : "";
   const inputFoto = $("foto-" + id);
 
   msg("msg-aut", "Salvataggio in corso…", "attesa"); mostra("msg-aut");
@@ -653,36 +785,259 @@ async function termina(id) {
   mostraViaggi(VIAGGI.filter(x => x.id !== id));   // la card sparisce subito
 
   try {
-    // 1) i DATI partono per primi: e' quello che conta e ci mette poco
+    // 1) i DATI partono per primi
     await api("termina", {
       id: id,
       autista: autistaLoggato,
       kmArrivo: kmArr,
       tonnellate: ton,
-      oreLavoro: ore
+      oreLavoro: ore,
+      numeroViaggi: nViaggi,
+      notaAutista: notaAut
     });
     msg("msg-aut", "Viaggio chiuso!", "ok");
     setTimeout(() => nascondi("msg-aut"), 2000);
 
-    // 2) la FOTO viaggia dopo, in sottofondo: l'autista non aspetta
-    const foto = await leggiFoto(inputFoto);
-    if (foto) {
-      msg("msg-aut", "Invio foto in corso…", "info"); mostra("msg-aut");
-      api("foto", {
-        tipo: "viaggio", id: id,
-        fotoData: foto.data,
-        fotoNome: "Priamus_Doc_" + id + "_" + foto.nome,
-        fotoMime: foto.mime
-      }).then(() => {
-        msg("msg-aut", "Foto salvata.", "ok");
-        setTimeout(() => nascondi("msg-aut"), 2000);
-      }).catch(err => {
-        msg("msg-aut", "Viaggio chiuso, ma foto NON caricata: " + err.message, "err");
-      });
-    }
+    // 2) le FOTO viaggiano dopo, in sottofondo e una alla volta
+    const foto = await leggiFotoTutte(inputFoto);
+    if (foto.length) inviaFoto(id, foto);
   } catch (e) {
     mostraViaggi(copia);
     msg("msg-aut", "Non salvato: " + e.message, "err");
+  }
+}
+
+// Manda le foto una dopo l'altra: in parallelo Google ne rifiuterebbe qualcuna
+async function inviaFoto(id, foto) {
+  let fatte = 0;
+  msg("msg-aut", foto.length > 1 ? ("Invio foto 1 di " + foto.length + "…") : "Invio foto in corso…", "info");
+  mostra("msg-aut");
+
+  for (let i = 0; i < foto.length; i++) {
+    try {
+      await api("foto", {
+        tipo: "viaggio", id: id,
+        fotoData: foto[i].data,
+        fotoNome: "Priamus_Doc_" + id + "_" + (i + 1) + "_" + foto[i].nome,
+        fotoMime: foto[i].mime
+      });
+      fatte++;
+      if (i + 1 < foto.length) msg("msg-aut", "Invio foto " + (i + 2) + " di " + foto.length + "…", "info");
+    } catch (err) {
+      msg("msg-aut", "Viaggio chiuso. Foto caricate: " + fatte + " di " + foto.length +
+                     ". Errore: " + err.message, "err");
+      return;
+    }
+  }
+  msg("msg-aut", fatte > 1 ? (fatte + " foto salvate.") : "Foto salvata.", "ok");
+  setTimeout(() => nascondi("msg-aut"), 2500);
+}
+
+
+// ============================================================
+//  RESOCONTI  (solo admin)
+// ============================================================
+let RES = null;
+let RES_ORD = "km";
+let RES_SCELTO = null;
+
+function nFmt(v, d) {
+  if (v == null || v === "") return "—";
+  return Number(v).toLocaleString("it-IT", { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
+}
+
+function nomeMese(m) {
+  const nomi = ["gennaio","febbraio","marzo","aprile","maggio","giugno",
+                "luglio","agosto","settembre","ottobre","novembre","dicembre"];
+  const p = String(m).split("-");
+  if (p.length !== 2) return m;
+  return nomi[Number(p[1]) - 1] + " " + p[0];
+}
+
+async function caricaResoconti() {
+  const sel = $("r-mese");
+  const meseScelto = sel.value || null;
+  $("res-kpi").innerHTML = "<p style='text-align:center;color:var(--light);padding:18px'>Caricamento…</p>";
+  $("res-lista").innerHTML = "";
+  $("res-dett").innerHTML = "";
+  nascondi("res-msg");
+
+  try {
+    RES = await api("resoconti", { mese: meseScelto });
+
+    // elenco mesi, solo la prima volta o se cambia
+    if (sel.options.length !== RES.mesi.length) {
+      sel.innerHTML = RES.mesi.map(m =>
+        "<option value='" + m + "'" + (m === RES.mese ? " selected" : "") + ">" + nomeMese(m) + "</option>"
+      ).join("");
+    }
+    sel.value = RES.mese;
+
+    RES_SCELTO = null;
+    disegnaResoconti();
+  } catch (e) {
+    $("res-kpi").innerHTML = "";
+    msg("res-msg", e.message, "err"); mostra("res-msg");
+  }
+}
+
+function disegnaResoconti() {
+  if (!RES) return;
+  const t = RES.totali;
+
+  $("res-kpi").innerHTML =
+    "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:18px'>" +
+    [["Spesa gasolio", t.spesa ? nFmt(t.spesa, 0) + " €" : "—"],
+     ["Litri", t.litri ? nFmt(t.litri, 0) : "—"],
+     ["Km percorsi", nFmt(t.km, 0)],
+     ["Consumo medio", t.consumo != null ? nFmt(t.consumo, 1) + " L" : "—"],
+     ["Costo al km", t.euroKm != null ? nFmt(t.euroKm, 2) + " €" : "—"],
+     ["Viaggi", nFmt(t.viaggi, 0)]]
+    .map(x =>
+      "<div style='background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:12px'>" +
+      "<div style='font-size:11px;color:var(--light);text-transform:uppercase;letter-spacing:.4px'>" + x[0] + "</div>" +
+      "<div style='font-size:19px;font-weight:700;color:var(--blue);margin-top:3px'>" + x[1] + "</div></div>"
+    ).join("") + "</div>";
+
+  const camion = RES.camion.slice().sort((a, b) => {
+    if (RES_ORD === "consumo") return (b.consumo || 0) - (a.consumo || 0);
+    return (b[RES_ORD] || 0) - (a[RES_ORD] || 0);
+  });
+
+  if (!camion.length) {
+    $("res-lista").innerHTML = "<div class='viaggio' style='text-align:center;color:var(--light)'>Nessun dato per questo mese.</div>";
+    $("res-dett").innerHTML = "";
+    return;
+  }
+
+  const media = RES.totali.consumo;
+  const maxC = Math.max.apply(null, camion.map(c => c.consumo || 0)) || 1;
+  const senzaRif = camion.filter(c => c.km > 0 && !c.litri).length;
+
+  let html =
+    "<div style='display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap'>" +
+    [["km", "Km"], ["consumo", "Consumo"], ["spesa", "Spesa"], ["viaggi", "Viaggi"]]
+      .map(o => "<button class='btn " + (RES_ORD === o[0] ? "" : "ghost") + "' style='flex:1;min-width:74px;padding:8px;font-size:11px;margin-top:0' " +
+                "onclick=\"RES_ORD='" + o[0] + "';disegnaResoconti()\">" + o[1] + "</button>").join("") +
+    "</div>";
+
+  html += camion.map(c => {
+    const largh = c.consumo ? Math.max(6, c.consumo / maxC * 100) : 0;
+    let col = "#94a3b8";
+    if (c.consumo != null && media) {
+      col = c.consumo > media * 1.05 ? "#dc2626" : (c.consumo < media * 0.95 ? "#10b981" : "#f59e0b");
+    }
+    const sel = RES_SCELTO === c.targa;
+    return "<div onclick=\"RES_SCELTO='" + c.targa + "';disegnaResoconti()\" " +
+      "style='display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;cursor:pointer;margin-bottom:4px;" +
+      "border:1px solid " + (sel ? "var(--orange)" : "transparent") + ";background:" + (sel ? "#fff7ed" : "transparent") + "'>" +
+      "<div style='flex:1;min-width:0'>" +
+        "<div style='font-size:13px;font-weight:600;color:var(--blue)'>" + c.nome + "</div>" +
+        "<div style='font-size:11px;color:var(--light)'>" + c.targa + " · " + nFmt(c.km, 0) + " km · " + c.viaggi + " viaggi</div>" +
+      "</div>" +
+      "<div style='width:70px;height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden'>" +
+        "<div style='width:" + largh + "%;height:100%;background:" + col + "'></div></div>" +
+      "<div style='width:58px;text-align:right'>" +
+        "<div style='font-size:13px;font-weight:700;color:" + col + "'>" + (c.consumo != null ? nFmt(c.consumo, 1) : "—") + "</div>" +
+        "<div style='font-size:9px;color:var(--light)'>L/100km</div></div>" +
+    "</div>";
+  }).join("");
+
+  if (senzaRif) {
+    html += "<div class='nota' style='margin-top:10px'>⚠️ " + senzaRif +
+            (senzaRif === 1 ? " camion ha" : " camion hanno") +
+            " percorso km senza rifornimenti registrati: per loro il consumo non è calcolabile.</div>";
+  }
+
+  html += "<button class='btn' style='margin-top:14px' onclick='esportaResoconti()'>📊 Scarica in Excel</button>";
+  $("res-lista").innerHTML = html;
+
+  // dettaglio del camion selezionato
+  const c = camion.find(x => x.targa === RES_SCELTO);
+  if (!c) { $("res-dett").innerHTML = ""; return; }
+
+  const scarto = (c.consumo != null && media) ? ((c.consumo - media) / media * 100) : null;
+  const serie = (RES.andamento && RES.andamento[c.targa]) || [];
+  const conDati = serie.filter(x => x.consumo != null);
+
+  let dett = "<div style='background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:16px'>" +
+    "<div style='font-size:15px;font-weight:700;color:var(--blue)'>" + c.nome + "</div>" +
+    "<div style='font-size:11px;color:var(--light);margin-bottom:12px'>" + c.targa + "</div>" +
+    "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:12px'>" +
+    [["Km", nFmt(c.km, 0)], ["Viaggi", nFmt(c.viaggi, 0)], ["Rotazioni", nFmt(c.rotazioni, 0)],
+     ["Tonnellate", nFmt(c.tonnellate, 1)], ["Ore", nFmt(c.ore, 1)],
+     ["Litri", c.litri ? nFmt(c.litri, 1) : "—"],
+     ["Spesa", c.spesa ? nFmt(c.spesa, 2) + " €" : "—"],
+     ["€/km", c.euroKm != null ? nFmt(c.euroKm, 2) : "—"],
+     ["vs media", scarto != null ? (scarto >= 0 ? "+" : "−") + nFmt(Math.abs(scarto), 1) + "%" : "—"]]
+    .map(x => "<div><div style='font-size:11px;color:var(--light)'>" + x[0] + "</div>" +
+              "<div style='font-size:15px;font-weight:700;color:var(--blue);margin-top:2px'>" + x[1] + "</div></div>").join("") +
+    "</div>";
+
+  if (conDati.length > 1) {
+    const vals = conDati.map(x => x.consumo);
+    const mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+    const scala = (mx - mn) || 1;
+    dett += "<div style='margin-top:16px'>" +
+      "<div style='font-size:11px;color:var(--light);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px'>Consumo mese per mese</div>" +
+      "<div style='display:flex;align-items:flex-end;gap:6px;height:70px'>" +
+      conDati.map(x => {
+        const h = 20 + (x.consumo - mn) / scala * 50;
+        return "<div style='flex:1;text-align:center'>" +
+          "<div style='font-size:9px;color:var(--blue);font-weight:700;margin-bottom:2px'>" + nFmt(x.consumo, 1) + "</div>" +
+          "<div style='height:" + h + "px;background:var(--blue);border-radius:3px 3px 0 0'></div>" +
+          "<div style='font-size:9px;color:var(--light);margin-top:3px'>" + x.mese.split("-")[1] + "</div></div>";
+      }).join("") + "</div></div>";
+  }
+
+  dett += "</div>";
+  $("res-dett").innerHTML = dett;
+}
+
+// ---------- esportazione in Excel ----------
+function caricaXLSX() {
+  return new Promise((ris, rif) => {
+    if (window.XLSX) { ris(); return; }
+    const t = document.createElement("script");
+    t.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    t.onload = () => ris();
+    t.onerror = () => rif(new Error("Non riesco a caricare il modulo Excel (serve connessione)."));
+    document.head.appendChild(t);
+  });
+}
+
+async function esportaResoconti() {
+  if (!RES) return;
+  msg("res-msg", "Preparazione del file…", "attesa"); mostra("res-msg");
+  try {
+    await caricaXLSX();
+
+    const righe = RES.camion.map(c => ({
+      "Camion": c.nome, "Targa": c.targa, "Viaggi": c.viaggi, "Rotazioni": c.rotazioni,
+      "Km percorsi": c.km, "Tonnellate": c.tonnellate, "Ore lavoro": c.ore,
+      "Litri": c.litri || "", "Spesa (EUR)": c.spesa || "",
+      "Consumo (L/100km)": c.consumo != null ? c.consumo : "",
+      "Costo (EUR/km)": c.euroKm != null ? c.euroKm : ""
+    }));
+    const t = RES.totali;
+    righe.push({
+      "Camion": "TOTALE", "Targa": "", "Viaggi": t.viaggi, "Rotazioni": t.rotazioni,
+      "Km percorsi": t.km, "Tonnellate": t.tonnellate, "Ore lavoro": t.ore,
+      "Litri": t.litri || "", "Spesa (EUR)": t.spesa || "",
+      "Consumo (L/100km)": t.consumo != null ? t.consumo : "",
+      "Costo (EUR/km)": t.euroKm != null ? t.euroKm : ""
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(righe);
+    ws["!cols"] = [{wch:20},{wch:11},{wch:8},{wch:10},{wch:12},{wch:11},{wch:11},{wch:10},{wch:12},{wch:16},{wch:13}];
+    XLSX.utils.book_append_sheet(wb, ws, "Riepilogo camion");
+    XLSX.writeFile(wb, "resoconti-" + RES.mese + ".xlsx");
+
+    msg("res-msg", "File scaricato.", "ok");
+    setTimeout(() => nascondi("res-msg"), 2500);
+  } catch (e) {
+    msg("res-msg", e.message, "err");
   }
 }
 
