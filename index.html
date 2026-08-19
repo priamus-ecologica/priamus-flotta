@@ -197,6 +197,10 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 //  CONFIGURAZIONE - i due valori da personalizzare
 // ============================================================
 const API_URL = "/.netlify/functions/api";
+
+// Le FOTO passano da Apps Script, non da Netlify: il "robot" di Netlify
+// non ha spazio proprio su Drive, questo invece usa il tuo.
+const FOTO_URL = "https://script.google.com/macros/s/AKfycbxhci3gX_VkNZ6EdIOYMLdMcDrZXm7W0SJ_YMjShFR0MSzIQyqjss32kpnayR6gEg39/exec";
 const SEGRETO = "priamus-flotta-2026-Kt7xQw9zLm";
 
 // ============================================================
@@ -262,6 +266,35 @@ function svegliaServer() {
   if (svegliato) return;
   svegliato = true;
   chiamata({ azione: "ping", segreto: SEGRETO }, 8000).catch(() => {});
+}
+
+// Invio di una foto ad Apps Script (con ritenta: a freddo puo' non rispondere)
+async function apiFoto(dati) {
+  const corpo = Object.assign({ azione: "foto", segreto: SEGRETO }, dati || {});
+  let ultimo;
+  for (let i = 0; i < 3; i++) {
+    const ctrl = new AbortController();
+    const stop = setTimeout(() => ctrl.abort(), 60000);
+    try {
+      const res = await fetch(FOTO_URL, {
+        method: "POST",
+        body: JSON.stringify(corpo),
+        signal: ctrl.signal
+      });
+      const testo = await res.text();
+      let json;
+      try { json = JSON.parse(testo); }
+      catch (e) { throw new Error("Il server delle foto non era pronto."); }
+      if (!json.ok) throw new Error(json.msg || "Errore sconosciuto");
+      return json.dati;
+    } catch (e) {
+      ultimo = e;
+      if (i < 2) await attendi(800 * (i + 1));
+    } finally {
+      clearTimeout(stop);
+    }
+  }
+  throw ultimo;
 }
 
 function $(id) { return document.getElementById(id); }
@@ -815,7 +848,7 @@ async function inviaFoto(id, foto) {
 
   for (let i = 0; i < foto.length; i++) {
     try {
-      await api("foto", {
+      await apiFoto({
         tipo: "viaggio", id: id,
         fotoData: foto[i].data,
         fotoNome: "Priamus_Doc_" + id + "_" + (i + 1) + "_" + foto[i].nome,
@@ -1066,7 +1099,7 @@ async function salvaRif() {
     ["r-litri", "r-costo", "r-km", "r-foto"].forEach(i => $(i).value = "");
     if (foto) {
       msg("msg-aut", "Invio ricevuta in corso…", "info");
-      api("foto", {
+      apiFoto({
         tipo: "rifornimento", id: idRif,
         fotoData: foto.data,
         fotoNome: "Ricevuta_" + mezzo + "_" + foto.nome,
