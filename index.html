@@ -699,7 +699,12 @@ function mostraViaggi(viaggi) {
              "<div class='grp'><label>Numero viaggi</label>" +
              "<input type='number' inputmode='numeric' min='1' step='1' id='nv-" + v.id + "' value='1'></div>" +
              "<div class='grp'><label>Tonnellate</label><input type='number' step='0.01' inputmode='decimal' id='ton-" + v.id + "'></div>" +
-             "<div class='grp'><label>Ore (es. 4:30)</label><input type='text' id='ore-" + v.id + "'></div>" +
+             "<div class='grp'><label>Ore di lavoro</label>" +
+               "<div style='display:flex;gap:8px'>" +
+                 "<select id='oreh-" + v.id + "' style='flex:1'>" + opzioniOre() + "</select>" +
+                 "<select id='orem-" + v.id + "' style='flex:1'>" + opzioniMinuti() + "</select>" +
+               "</div>" +
+               "<div class='hint'>Solo le ore lavorate. Se devi spiegare qualcosa, usa la Nota.</div></div>" +
              "<div class='grp'><label>Nota (facoltativa)</label>" +
              "<input type='text' id='nau-" + v.id + "' placeholder='Es. traffico, attesa al carico…'></div>" +
              "<div class='grp'><label>Foto formulario</label>" +
@@ -752,6 +757,31 @@ function contaFoto(id) {
   scritta.textContent = n === 0 ? "Nessuna foto scelta."
                       : (n === 1 ? "1 foto scelta." : n + " foto scelte.");
   scritta.style.color = n ? "#15803d" : "";
+}
+
+// Tendine delle ore: niente piu' campo libero, cosi' nel foglio
+// arriva sempre un numero decimale (8,5 = otto ore e mezza)
+function opzioniOre() {
+  let h = "<option value=''>— ore —</option>";
+  for (let i = 0; i <= 15; i++) h += "<option value='" + i + "'>" + i + (i === 1 ? " ora" : " ore") + "</option>";
+  return h;
+}
+
+function opzioniMinuti() {
+  let h = "<option value=''>— minuti —</option>";
+  [0, 15, 30, 45].forEach(m => {
+    h += "<option value='" + m + "'>" + (m === 0 ? "00" : m) + " min</option>";
+  });
+  return h;
+}
+
+// Da tendine a decimale: 8 ore + 30 min -> 8.5
+function oreDecimali(id) {
+  const h = $("oreh-" + id), m = $("orem-" + id);
+  if (!h || !m) return "";
+  if (h.value === "" && m.value === "") return "";
+  const tot = Number(h.value || 0) + Number(m.value || 0) / 60;
+  return tot > 0 ? Math.round(tot * 100) / 100 : "";
 }
 
 function controllaKm(id) {
@@ -842,7 +872,7 @@ async function termina(id) {
   }
 
   const ton = $("ton-" + id).value;
-  const ore = $("ore-" + id).value;
+  const ore = oreDecimali(id);
   const nViaggi = $("nv-" + id) ? $("nv-" + id).value : "";
   const notaAut = $("nau-" + id) ? $("nau-" + id).value.trim() : "";
   const inputCam = $("cam-" + id);
