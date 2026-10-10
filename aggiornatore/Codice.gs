@@ -201,26 +201,31 @@ function spostaPubblicazione_(p, versione) {
   });
 }
 
-function leggiGithub_() {
-  const base = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO + '/contents/';
-  const elenco = ghFetch_(base + GH_CARTELLA + '?ref=' + GH_BRANCH, 'application/vnd.github+json');
-  const voci = JSON.parse(elenco);
-  if (!Array.isArray(voci)) throw new Error('Cartella "' + GH_CARTELLA + '" non trovata su GitHub.');
+/**
+ * Legge i file di una cartella del repository.
+ * Usa raw.githubusercontent.com (nessun limite di richieste) fissato all'ultimo commit,
+ * così non legge mai una copia vecchia dalla cache. L'elenco dei file è in ELENCO.txt.
+ */
+function leggiGithub_(cartella) {
+  cartella = cartella || GH_CARTELLA;
+  const base = 'https://raw.githubusercontent.com/' + GH_OWNER + '/' + GH_REPO + '/' + ultimoCommit_() + '/' + cartella + '/';
+  const nomi = ghFetch_(base + 'ELENCO.txt').split('\n')
+    .map(function (r) { return r.trim(); })
+    .filter(function (r) { return r && r.charAt(0) !== '#'; });
+  if (!nomi.length) throw new Error('ELENCO.txt della cartella "' + cartella + '" è vuoto.');
 
   const files = [];
-  voci.filter(function (v) { return v.type === 'file'; }).forEach(function (v) {
-    const m = v.name.match(/^(.*)\.(gs|js|html|json)$/i);
-    if (!m) return; // ignora README e altri file
+  nomi.forEach(function (nome) {
+    const m = nome.match(/^(.*)\.(gs|js|html|json)$/i);
+    if (!m) throw new Error('Nome non valido in ELENCO.txt: ' + nome);
     const est = m[2].toLowerCase();
     let tipo;
     if (est === 'json') {
-      if (m[1] !== 'appsscript') return; // l'unico JSON ammesso è il manifest
+      if (m[1] !== 'appsscript') throw new Error('L\'unico .json ammesso è appsscript.json (trovato ' + nome + ')');
       tipo = 'JSON';
     } else if (est === 'html') tipo = 'HTML';
     else tipo = 'SERVER_JS';
-    const testo = ghFetch_(base + GH_CARTELLA + '/' + encodeURIComponent(v.name) + '?ref=' + GH_BRANCH,
-      'application/vnd.github.raw');
-    files.push({ name: m[1], type: tipo, source: testo });
+    files.push({ name: m[1], type: tipo, source: ghFetch_(base + encodeURIComponent(nome)) });
   });
 
   if (!files.some(function (f) { return f.type === 'JSON'; })) {
@@ -232,15 +237,36 @@ function leggiGithub_() {
   return files;
 }
 
-function ghFetch_(url, accept) {
-  const r = UrlFetchApp.fetch(url, {
-    headers: { Accept: accept, 'X-GitHub-Api-Version': '2022-11-28' },
-    muteHttpExceptions: true
-  });
+function ghFetch_(url) {
+  const r = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
   if (r.getResponseCode() !== 200) {
-    throw new Error('GitHub ha risposto ' + r.getResponseCode() + ' per ' + url.split('?')[0]);
+    throw new Error('GitHub ha risposto ' + r.getResponseCode() + ' per ' + url);
   }
-  return r.getContentText();
+  return r.getContentText('UTF-8');
+}
+
+/** Codice dell'ultimo commit del ramo, letto dall'indirizzo git (non ha limiti di richieste). */
+function ultimoCommit_() {
+  try {
+    const t = UrlFetchApp.fetch('https://github.com/' + GH_OWNER + '/' + GH_REPO +
+      '.git/info/refs?service=git-upload-pack', { muteHttpExceptions: true }).getContentText();
+    const m = t.match(new RegExp('([0-9a-f]{40}) refs/heads/' + GH_BRANCH));
+    if (m) return m[1];
+  } catch (e) {}
+  return GH_BRANCH; // ripiego: nome del ramo (può essere in ritardo di qualche minuto)
+}
+
+/** Aggiorna l'Aggiornatore stesso dalla cartella "aggiornatore" di GitHub. */
+function aggiornaAggiornatore() {
+  const nuovi = leggiGithub_('aggiornatore');
+  const mio = ScriptApp.getScriptId();
+  const attuali = api_('get', 'projects/' + mio + '/content').files || [];
+  const diff = confronta_(attuali, nuovi);
+  if (!diff.cambiamenti) return { esito: 'L\'Aggiornatore è già all\'ultima versione.' };
+  if (diff.rimossi.length) throw new Error('Verrebbero eliminati dall\'Aggiornatore: ' + diff.rimossi.join(', '));
+  // niente copia su Drive: le versioni precedenti dell'Aggiornatore restano su GitHub
+  api_('put', 'projects/' + mio + '/content', { files: nuovi });
+  return { esito: 'Aggiornatore aggiornato (' + diff.modificati.concat(diff.aggiunti).join(', ') + '). Ricarica questa pagina.' };
 }
 
 function nomeCompleto_(f) {

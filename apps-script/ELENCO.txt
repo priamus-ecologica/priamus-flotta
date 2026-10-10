@@ -1,0 +1,10 @@
+# File installati nel progetto Apps Script del foglio (uno per riga).
+# Un file che non è qui viene segnalato come "da eliminare".
+API.gs
+AssegnaRapida.gs
+Codice.gs
+CostiMezzi.gs
+Index.html
+SchedeMezzi.gs
+appsscript.json
+estensioni.gs

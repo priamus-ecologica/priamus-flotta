@@ -1,0 +1,4 @@
+# File installati nell Aggiornatore
+Codice.gs
+Pagina.html
+appsscript.json

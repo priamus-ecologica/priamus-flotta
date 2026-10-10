@@ -56,6 +56,12 @@
     <button class="secondario" onclick="esporta()">Esporta</button>
   </div>
 
+  <div class="card">
+    <h2>Aggiorna questa pagina</h2>
+    <p>Solo quando Claude ti dice che c'è una nuova versione dell'Aggiornatore.</p>
+    <button class="secondario" onclick="autoAggiorna()">Aggiorna l'Aggiornatore</button>
+  </div>
+
 <script>
   function mostra(testo, tipo) { var e = document.getElementById('esito'); e.className = tipo; e.textContent = testo; window.scrollTo(0,0); }
   function blocca(si) { document.querySelectorAll('button').forEach(function(b){ b.disabled = si; }); }
@@ -93,6 +99,9 @@
     var id = document.getElementById('copie').value;
     if (!id) return mostra('Scegli prima una copia.', 'err');
     chiama('ripristinaCopia', [id], function(r) { mostra(r.esito + '\nRicarica il foglio.', 'ok'); caricaCopie(); }, 'Ripristino…');
+  }
+  function autoAggiorna() {
+    chiama('aggiornaAggiornatore', [], function(r) { mostra(r.esito, 'ok'); }, 'Aggiorno l\'Aggiornatore…');
   }
   function caricaCopie() {
     google.script.run.withSuccessHandler(function(l) {
