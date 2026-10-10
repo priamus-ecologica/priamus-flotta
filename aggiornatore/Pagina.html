@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --viola:#5b2c83; --bordo:#d9d4e3; --testo:#1f1a24; --tenue:#6b6474; --ok:#1d7a3e; --err:#b3261e; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:16px; font:16px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif; color:var(--testo); background:#f6f4f9; }
+  h1 { font-size:20px; margin:0 0 4px; color:var(--viola); }
+  .sotto { color:var(--tenue); font-size:14px; margin-bottom:16px; }
+  .card { background:#fff; border:1px solid var(--bordo); border-radius:12px; padding:14px; margin-bottom:12px; }
+  .card h2 { font-size:16px; margin:0 0 6px; }
+  .card p { margin:0 0 10px; color:var(--tenue); font-size:14px; }
+  button { width:100%; padding:12px; border:0; border-radius:10px; font-size:16px; font-weight:600; background:var(--viola); color:#fff; }
+  button.secondario { background:#fff; color:var(--viola); border:1px solid var(--viola); }
+  button:disabled { opacity:.5; }
+  label { display:flex; gap:8px; align-items:flex-start; font-size:14px; margin:8px 0; }
+  select { width:100%; padding:10px; border-radius:8px; border:1px solid var(--bordo); font-size:15px; margin-bottom:8px; }
+  #esito { white-space:pre-wrap; font-size:14px; padding:12px; border-radius:10px; display:none; }
+  #esito.ok { display:block; background:#e8f5ec; color:var(--ok); }
+  #esito.err { display:block; background:#fdecea; color:var(--err); }
+  #esito.info { display:block; background:#efeaf6; color:var(--testo); }
+</style>
+</head>
+<body>
+  <h1>Aggiornatore Priamus</h1>
+  <div class="sotto">Porta nel foglio il codice preparato su GitHub.</div>
+
+  <div id="esito"></div>
+
+  <div class="card">
+    <h2>1. Controlla le novità</h2>
+    <p>Mostra cosa cambierebbe. Non modifica niente.</p>
+    <button onclick="controlla()">Controlla</button>
+  </div>
+
+  <div class="card">
+    <h2>2. Installa l'aggiornamento</h2>
+    <p>Prima salva una copia del codice attuale su Drive.</p>
+    <label><input type="checkbox" id="pubblicata" checked> Aggiorna anche l'app pubblicata (indirizzo /exec)</label>
+    <label><input type="checkbox" id="rimozioni"> Consenti di eliminare i file che non sono più su GitHub</label>
+    <button onclick="installa()">Installa</button>
+  </div>
+
+  <div class="card">
+    <h2>Torna indietro</h2>
+    <p>Rimette il codice com'era in una copia salvata.</p>
+    <select id="copie"><option value="">Caricamento…</option></select>
+    <button class="secondario" onclick="ripristina()">Ripristina questa copia</button>
+  </div>
+
+  <div class="card">
+    <h2>Esporta il codice attuale</h2>
+    <p>Salva su Drive il codice che c'è adesso nel foglio, così Claude lo può leggere.</p>
+    <button class="secondario" onclick="esporta()">Esporta</button>
+  </div>
+
+<script>
+  function mostra(testo, tipo) { var e = document.getElementById('esito'); e.className = tipo; e.textContent = testo; window.scrollTo(0,0); }
+  function blocca(si) { document.querySelectorAll('button').forEach(function(b){ b.disabled = si; }); }
+  function errore(e) { blocca(false); mostra('Errore: ' + (e && e.message ? e.message : e), 'err'); }
+  function chiama(fn, args, ok, attesa) {
+    blocca(true); mostra(attesa || 'Attendi…', 'info');
+    var r = google.script.run.withSuccessHandler(function(x){ blocca(false); ok(x); }).withFailureHandler(errore);
+    r[fn].apply(r, args || []);
+  }
+  function righe(titolo, l) { return l.length ? titolo + ': ' + l.join(', ') + '\n' : ''; }
+
+  function controlla() {
+    chiama('controllaNovita', [], function(d) {
+      if (!d.cambiamenti) return mostra('Nessuna novità: il foglio ha già il codice di GitHub.', 'ok');
+      mostra('Cambierebbero ' + d.cambiamenti + ' file.\n\n' +
+        righe('Modificati', d.modificati) + righe('Nuovi', d.aggiunti) + righe('Da eliminare', d.rimossi) +
+        '\nSe va bene, premi Installa.', 'info');
+    }, 'Confronto il codice…');
+  }
+  function installa() {
+    var pubbl = document.getElementById('pubblicata').checked;
+    var rim = document.getElementById('rimozioni').checked;
+    chiama('installaAggiornamento', [rim, pubbl], function(r) {
+      var t = r.esito;
+      if (r.copia) t += '\nCopia di sicurezza: ' + r.copia;
+      if (r.dettaglio) t += '\n\n' + righe('Modificati', r.dettaglio.modificati) + righe('Nuovi', r.dettaglio.aggiunti) + righe('Eliminati', r.dettaglio.rimossi);
+      t += '\nRicarica il foglio per vedere i menu aggiornati.';
+      mostra(t, 'ok'); caricaCopie();
+    }, 'Installo l\'aggiornamento…');
+  }
+  function esporta() {
+    chiama('esportaCodice', [], function(r) { mostra(r.esito + '\n' + r.file.join(', '), 'ok'); }, 'Esporto…');
+  }
+  function ripristina() {
+    var id = document.getElementById('copie').value;
+    if (!id) return mostra('Scegli prima una copia.', 'err');
+    chiama('ripristinaCopia', [id], function(r) { mostra(r.esito + '\nRicarica il foglio.', 'ok'); caricaCopie(); }, 'Ripristino…');
+  }
+  function caricaCopie() {
+    google.script.run.withSuccessHandler(function(l) {
+      var s = document.getElementById('copie');
+      s.innerHTML = l.length ? '' : '<option value="">Nessuna copia salvata</option>';
+      l.forEach(function(c){ var o = document.createElement('option'); o.value = c.id;
+        o.textContent = c.nome.replace('copia_','').replace('.json','').replace('_',' alle ').replace(/-(\d\d)-(\d\d)$/, ':$1:$2'); s.appendChild(o); });
+    }).withFailureHandler(function(){ document.getElementById('copie').innerHTML = '<option value="">—</option>'; }).elencoCopie();
+  }
+  caricaCopie();
+</script>
+</body>
+</html>

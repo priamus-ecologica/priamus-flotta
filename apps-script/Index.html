@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Gestione Flotta - Priamus</title>
+<link rel="icon" type="image/png" sizes="512x512" href="https://lh3.googleusercontent.com/d/1scBA7z9tzCQdEYct6JpdGEkkf6k_GprU">
+<link rel="apple-touch-icon" href="https://lh3.googleusercontent.com/d/1scBA7z9tzCQdEYct6JpdGEkkf6k_GprU">
+<meta name="apple-mobile-web-app-title" content="Priamus">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --priamus-blue: #0b192c;
+  --priamus-orange: #ff7800;
+  --bg-color: #f0f4f8;
+  --card-bg: #ffffff;
+  --text-main: #1e293b;
+  --text-light: #64748b;
+  --border: #e2e8f0;
+}
+body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); margin: 0; padding: 20px 10px; color: var(--text-main); }
+.app-container { max-width: 480px; margin: 0 auto; background: var(--card-bg); padding: 30px 25px; border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(11, 25, 44, 0.08); border-top: 6px solid var(--priamus-orange); }
+.logo-container { text-align: center; margin-bottom: 25px; }
+.logo-container img { max-width: 180px; height: auto; }
+.logo-app { display: block; margin: 0 auto 8px auto; max-width: 165px; height: auto; }
+.logo-app-small { display: block; margin: 0 auto 4px auto; max-width: 105px; height: auto; }
+h2, h3 { text-align: center; color: var(--priamus-blue); margin-top: 0; margin-bottom: 25px; font-weight: 700; }
+p.subtitle { text-align: center; font-size: 14px; color: var(--text-light); margin-top: -15px; margin-bottom: 25px; }
+#sec-responsabile, #sec-autista { display: none; }
+.form-group { margin-bottom: 18px; }
+label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 13px; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.5px; }
+select, input { width: 100%; padding: 14px; border: 1px solid var(--border); border-radius: 8px; box-sizing: border-box; font-size: 15px;
+  background-color: #f8fafc; transition: all 0.3s ease; font-family: 'Inter', sans-serif; }
+select:focus, input:focus { border-color: var(--priamus-orange); outline: none; background-color: #fff; box-shadow: 0 0 0 3px rgba(255, 120, 0, 0.15); }
+button.btn-submit { width: 100%; padding: 16px; background-color: var(--priamus-blue); color: white; border: none; border-radius: 8px;
+  font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 15px; transition: all 0.3s ease; text-transform: uppercase;
+  letter-spacing: 1px; box-shadow: 0 4px 6px rgba(11, 25, 44, 0.15); }
+button.btn-submit:hover { background-color: var(--priamus-orange); transform: translateY(-2px); box-shadow: 0 6px 12px rgba(255, 120, 0, 0.2); }
+.viaggio-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.02); border-left: 5px solid var(--priamus-blue); }
+#form-rifornimento { display:none; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #cbd5e1; margin-bottom: 20px; margin-top: 20px; }
+.badge { display: inline-block; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; float: right; }
+.badge-assegnato { background: #fff7ed; color: #ea580c; border: 1px solid #ffedd5; }
+.badge-corso { background: #f0f9ff; color: #0284c7; border: 1px solid #e0f2fe; }
+.status-msg { margin-top: 20px; padding: 15px; border-radius: 8px; text-align: center; font-weight: 600; display: none; font-size: 14px; }
+#logout-btn { background-color: transparent; color: var(--text-light); box-shadow: none; border: 1px solid var(--border); margin-top: 30px; }
+#logout-btn:hover { background-color: #f1f5f9; color: #ef4444; border-color: #ef4444; }
+hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
+.admin-tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 25px; }
+.admin-tab-btn { flex: 1; padding: 12px; text-align: center; background: none; border: none; font-size: 14px; font-weight: 700;
+  color: var(--text-light); cursor: pointer; border-bottom: 3px solid transparent; transition: 0.3s; }
+.admin-tab-btn.active { color: var(--priamus-orange); border-bottom: 3px solid var(--priamus-orange); }
+.preview-tratta { margin-top: 10px; padding: 12px; background-color: #f1f5f9; border-radius: 8px; border: 1px dashed #cbd5e1;
+  font-size: 13px; color: #334155; font-weight: 600; display: none; line-height: 1.6; }
+/* NUOVO: popup guida "aggiungi alla schermata Home" */
+#popup-installa-overlay { display: none; position: fixed; inset: 0; background: rgba(11,25,44,0.55); z-index: 999; }
+#popup-installa { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 90%; max-width: 400px;
+  background: #fff; border-radius: 16px; padding: 25px 22px; z-index: 1000; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  border-top: 6px solid var(--priamus-orange); }
+#popup-installa h3 { text-align: left; font-size: 17px; margin-bottom: 12px; }
+#popup-installa ol { margin: 0 0 15px 0; padding-left: 20px; font-size: 14px; line-height: 1.7; color: #334155; }
+#popup-installa .btn-popup { width: 100%; padding: 13px; border: none; border-radius: 8px; font-size: 14px;
+  font-weight: 700; cursor: pointer; font-family: 'Inter', sans-serif; }
+</style>
+</head>
+<body>
+
+<div id="popup-installa-overlay" onclick="chiudiPopupInstalla(false)"></div>
+<div id="popup-installa" style="display:none;">
+  <img class="logo-app-small" src="https://lh3.googleusercontent.com/d/1scBA7z9tzCQdEYct6JpdGEkkf6k_GprU" alt="Priamus" onerror="this.style.display='none'">
+  <h3>📲 Vuoi Priamus sulla schermata Home?</h3>
+  <div id="istruzioni-ios" style="display:none;">
+    <ol>
+      <li>Apri l'app <b>Comandi</b> (icona blu di iPhone)</li>
+      <li>Tocca <b>+</b> → <b>Aggiungi azione</b> → cerca <b>"Apri URL"</b></li>
+      <li>Incolla il link di questa pagina</li>
+      <li>Rinomina in <b>Priamus</b> → <b>Aggiungi alla schermata Home</b></li>
+      <li>Tocca l'icona → <b>Scegli foto</b> → seleziona il logo Priamus</li>
+    </ol>
+  </div>
+  <div id="istruzioni-android" style="display:none;">
+    <ol>
+      <li>Installa <b>Shortcut Maker</b> dal Play Store (gratis)</li>
+      <li>Aprila → scegli <b>Sito web / URL</b></li>
+      <li>Incolla il link di questa pagina, nome <b>Priamus</b></li>
+      <li>Tocca l'icona → <b>Immagine dalla galleria</b> → logo Priamus</li>
+      <li><b>Crea collegamento</b> → conferma</li>
+    </ol>
+  </div>
+  <div id="istruzioni-desktop" style="display:none;">
+    <ol>
+      <li>Da computer: aggiungi questa pagina ai <b>Preferiti</b> (Ctrl+D)</li>
+      <li>Dal telefono, apri questo stesso link per aggiungerlo alla Home</li>
+    </ol>
+  </div>
+  <button class="btn-popup" style="background: var(--priamus-blue); color: #fff; margin-bottom: 8px;"
+    onclick="chiudiPopupInstalla(true)">✔️ Fatto, non mostrare più</button>
+  <button class="btn-popup" style="background: transparent; color: var(--text-light); border: 1px solid var(--border);"
+    onclick="chiudiPopupInstalla(false)">Più tardi</button>
+</div>
+
+<div id="login-section" class="app-container">
+  <img class="logo-app" src="https://lh3.googleusercontent.com/d/1scBA7z9tzCQdEYct6JpdGEkkf6k_GprU" alt="Priamus" onerror="this.style.display='none'">
+  <h2>Portale Operativo</h2>
+  <div class="form-group">
+    <label>Accedi come:</label>
+    <select id="login-tipo" onchange="cambiaTipoLogin()">
+      <option value="autista">Autista</option>
+      <option value="responsabile">Responsabile (Admin)</option>
+    </select>
+  </div>
+  <div class="form-group" id="div-nome-autista">
+    <label>Seleziona il tuo nome:</label>
+    <select id="login-nome-autista"><option>Caricamento nomi...</option></select>
+  </div>
+  <div class="form-group">
+    <label id="label-password">Il tuo PIN Personale:</label>
+    <input type="password" id="login-password" placeholder="••••">
+  </div>
+  <button class="btn-submit" onclick="eseguiLogin()">Accedi</button>
+  <div id="login-error" class="status-msg" style="background:#fee2e2; color:#b91c1c;"></div>
+</div>
+
+<div id="sec-responsabile" class="app-container">
+  <img class="logo-app-small" src="https://lh3.googleusercontent.com/d/1scBA7z9tzCQdEYct6JpdGEkkf6k_GprU" alt="Priamus" onerror="this.style.display='none'">
+  <h2>Area Admin</h2>
+  <div class="admin-tabs">
+    <button class="admin-tab-btn active" onclick="switchAdminTab('assegna')">📝 Assegna</button>
+    <button class="admin-tab-btn" onclick="switchAdminTab('dashboard')">📊 Dashboard</button>
+  </div>
+
+  <div id="admin-assegna">
+    <p class="subtitle">Assegnazione Nuovi Viaggi</p>
+    <div class="form-group">
+      <label>📅 Data dei viaggi da assegnare</label>
+      <input type="date" id="resp-data">
+      <div style="font-size:12px; color:var(--text-light); margin-top:6px;">
+        Vale per tutti i viaggi che assegni adesso: cambiala solo quando passi a un altro giorno.
+      </div>
+    </div>
+    <div class="form-group"><label>Autista</label><select id="resp-autista"></select></div>
+    <div class="form-group">
+      <label>Camion (Modello)</label>
+      <select id="resp-mezzo" onchange="mostraPreviewTratta()"></select>
+    </div>
+    <div class="form-group"><label>Rimorchio (Nome)</label><select id="resp-rimorchio"></select></div>
+    <div class="form-group">
+      <label>Tratta (Viaggio Chiave)</label>
+      <select id="resp-regola-viaggio" onchange="mostraPreviewTratta()"></select>
+      <div id="preview-tratta" class="preview-tratta"></div>
+    </div>
+    <div class="form-group">
+      <label>Nota per l'autista (facoltativa)</label>
+      <input type="text" id="resp-nota" placeholder="Es. Carica prima il rimorchio, chiamare all'arrivo...">
+    </div>
+    <button class="btn-submit" style="background-color: var(--priamus-orange);" onclick="submitResponsabile()">Conferma Assegnazione</button>
+    <div id="resp-status" class="status-msg"></div>
+  </div>
+
+  <div id="admin-dashboard" style="display:none;">
+    <p class="subtitle">Situazione Flotta in Tempo Reale</p>
+    <button class="btn-submit" style="background-color: var(--priamus-blue); padding: 10px; font-size: 14px; margin-bottom: 20px;"
+      onclick="caricaDashboardAdmin()">🔄 Aggiorna Mappa Flotta</button>
+    <div id="lista-flotta"></div>
+  </div>
+
+  <button class="btn-submit" id="logout-btn" onclick="tornaAllaHome()">Esci</button>
+</div>
+
+<div id="sec-autista" class="app-container">
+  <img class="logo-app-small" src="https://lh3.googleusercontent.com/d/1scBA7z9tzCQdEYct6JpdGEkkf6k_GprU" alt="Priamus" onerror="this.style.display='none'">
+  <h2>Benvenuto, <br><span id="display-nome-autista" style="color: var(--priamus-orange);"></span></h2>
+
+  <button class="btn-submit" style="background-color: #0284c7;" onclick="mostraFormRif()"> ⛽ Segnala Rifornimento </button>
+
+  <div id="form-rifornimento">
+    <h3 style="color:#0369a1; margin-top:0;">Nuovo Rifornimento</h3>
+    <div class="form-group"><label>Camion (Modello)</label><select id="rif-mezzo"></select></div>
+    <div class="form-group"><label>Litri Introdotti</label><input type="number" step="0.01" id="rif-litri" placeholder="Es. 150"></div>
+    <div class="form-group"><label>Costo Totale (€)</label><input type="number" step="0.01" id="rif-costo" placeholder="Es. 250.50"></div>
+    <div class="form-group"><label>KM al Rifornimento</label><input type="number" id="rif-km" placeholder="Es. 340600"></div>
+    <div class="form-group"><label>Foto Ricevuta</label><input type="file" id="rif-foto" accept="image/*" capture="environment" style="background:#fff;"></div>
+    <button class="btn-submit" style="background-color: #10b981;" onclick="salvaRifornimento()">Conferma Rifornimento</button>
+    <button class="btn-submit" style="background-color: transparent; color: #ef4444; border: 1px solid #ef4444; margin-top: 10px;"
+      onclick="nascondiFormRif()">Annulla</button>
+  </div>
+
+  <hr>
+  <p class="subtitle">Ecco le tratte a te assegnate oggi.</p>
+  <div id="lista-viaggi-attivi"></div>
+  <div id="aut-status" class="status-msg"></div>
+  <button class="btn-submit" id="logout-btn" onclick="tornaAllaHome()">Esci (Logout)</button>
+</div>
+
+<script>
+let autistaLoggato = "";
+let regoleGlobali = [];
+let ultimeDestinazioniGlobal = {};
+
+// NUOVO: logout senza ricaricare la pagina (il reload nell'iframe di Google
+// a volte lascia la schermata bianca). Riporta alla home di login pulita.
+function tornaAllaHome() {
+  autistaLoggato = "";
+
+  // Nasconde le aree riservate e rimostra il login
+  document.getElementById("sec-responsabile").style.display = "none";
+  document.getElementById("sec-autista").style.display = "none";
+  document.getElementById("login-section").style.display = "block";
+
+  // Pulizia campi e messaggi
+  document.getElementById("login-password").value = "";
+  document.getElementById("login-error").style.display = "none";
+  var respStatus = document.getElementById("resp-status");
+  if (respStatus) respStatus.style.display = "none";
+  var autStatus = document.getElementById("aut-status");
+  if (autStatus) autStatus.style.display = "none";
+  nascondiFormRif();
+
+  // Riporta l'area admin sulla scheda Assegna per la prossima volta
+  var tabs = document.querySelectorAll('.admin-tab-btn');
+  if (tabs.length >= 2) {
+    tabs[0].classList.add('active');
+    tabs[1].classList.remove('active');
+    document.getElementById('admin-assegna').style.display = 'block';
+    document.getElementById('admin-dashboard').style.display = 'none';
+  }
+
+  window.scrollTo(0, 0);
+}
+
+// NUOVO: popup guida per aggiungere l'app alla schermata Home.
+// Si mostra alla prima visita; "Fatto, non mostrare piu'" lo memorizza sul dispositivo.
+function mostraPopupInstallaSeServe() {
+  var giaVisto = false;
+  try { giaVisto = localStorage.getItem("priamus_popup_home") === "no"; } catch (e) {}
+  if (giaVisto) return;
+
+  var ua = navigator.userAgent || "";
+  var isIOS = /iPhone|iPad|iPod/i.test(ua);
+  var isAndroid = /Android/i.test(ua);
+  if (isIOS) document.getElementById("istruzioni-ios").style.display = "block";
+  else if (isAndroid) document.getElementById("istruzioni-android").style.display = "block";
+  else document.getElementById("istruzioni-desktop").style.display = "block";
+
+  document.getElementById("popup-installa-overlay").style.display = "block";
+  document.getElementById("popup-installa").style.display = "block";
+}
+
+function chiudiPopupInstalla(perSempre) {
+  document.getElementById("popup-installa-overlay").style.display = "none";
+  document.getElementById("popup-installa").style.display = "none";
+  if (perSempre) {
+    try { localStorage.setItem("priamus_popup_home", "no"); } catch (e) {}
+  }
+}
+
+window.onload = function() {
+  mostraPopupInstallaSeServe();
+  // NUOVO: la data dei viaggi parte da oggi; l'admin la cambia se assegna per domani o oltre
+  var oggi = new Date();
+  var yyyy = oggi.getFullYear();
+  var mm = String(oggi.getMonth() + 1).padStart(2, "0");
+  var dd = String(oggi.getDate()).padStart(2, "0");
+  document.getElementById("resp-data").value = yyyy + "-" + mm + "-" + dd;
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      popolaSelect("login-nome-autista", data.autisti);
+      popolaSelect("resp-autista", data.autisti);
+      popolaSelect("resp-mezzo", data.mezzi);          // {targa, label}
+      popolaSelect("resp-rimorchio", data.rimorchi);   // {targa, label}
+      popolaSelect("rif-mezzo", data.mezzi);           // {targa, label}
+
+      regoleGlobali = data.regole || [];
+      ultimeDestinazioniGlobal = data.ultimeDestinazioni || {};
+
+      let selRegola = document.getElementById("resp-regola-viaggio");
+      selRegola.innerHTML = '<option value="">-- Seleziona una Tratta --</option>';
+      regoleGlobali.forEach(r => {
+        let opt = document.createElement("option");
+        opt.value = r.chiave;
+        opt.innerText = r.chiave;
+        selRegola.appendChild(opt);
+      });
+    })
+    .withFailureHandler(function(err) { alert("Errore nel caricamento dei dati: " + err.message); })
+    .getElenchiIniziali();
+};
+
+// AGGIORNATA: accetta sia una lista di stringhe (autisti)
+// sia una lista di oggetti {targa, label} (mezzi e rimorchi).
+// Il VALORE dell'option resta la targa -> sul foglio finisce la targa.
+// Il TESTO visibile e' il modello / nome rimorchio.
+function popolaSelect(id, elenco) {
+  let select = document.getElementById(id);
+  select.innerHTML = '';
+  (elenco || []).forEach(item => {
+    let opt = document.createElement("option");
+    if (typeof item === "string") {
+      opt.value = item;
+      opt.innerText = item;
+    } else {
+      opt.value = item.targa;
+      opt.innerText = item.label;
+    }
+    select.appendChild(opt);
+  });
+}
+
+function mostraPreviewTratta() {
+  let chiave = document.getElementById("resp-regola-viaggio").value;
+  let mezzoScelto = document.getElementById("resp-mezzo").value; // = targa
+  let divPreview = document.getElementById("preview-tratta");
+  if (!chiave) { divPreview.style.display = "none"; return; }
+
+  let regola = regoleGlobali.find(r => r.chiave === chiave);
+  if (regola) {
+    let partenzaDisplay = regola.partenza;
+    if (!partenzaDisplay) {
+      partenzaDisplay = ultimeDestinazioniGlobal[mezzoScelto] || "⚠️ Da Definire (Nessun viaggio precedente trovato per questo mezzo)";
+    }
+    divPreview.innerHTML = `📍 <b>Partenza:</b> ${partenzaDisplay} <br> 🏁 <b>Arrivo:</b> ${regola.arrivo}`;
+    divPreview.style.display = "block";
+  }
+}
+
+function cambiaTipoLogin() {
+  let tipo = document.getElementById("login-tipo").value;
+  let divNome = document.getElementById("div-nome-autista");
+  let labelPass = document.getElementById("label-password");
+  if (tipo === "responsabile") {
+    divNome.style.display = "none";
+    labelPass.innerText = "Password di Sistema:";
+  } else {
+    divNome.style.display = "block";
+    labelPass.innerText = "Il tuo PIN Personale:";
+  }
+}
+
+function eseguiLogin() {
+  let tipo = document.getElementById("login-tipo").value;
+  let utente = document.getElementById("login-nome-autista").value;
+  let pass = document.getElementById("login-password").value;
+  let errBox = document.getElementById("login-error");
+
+  if (!pass) { errBox.innerText = "Inserisci la password/PIN!"; errBox.style.display = "block"; return; }
+  errBox.style.display = "block"; errBox.style.backgroundColor = "#e0f2fe"; errBox.style.color = "#0369a1";
+  errBox.innerText = "Verifica credenziali...";
+
+  google.script.run.withSuccessHandler(function(res) {
+    if (res.success) {
+      document.getElementById("login-section").style.display = "none";
+      if (res.role === "admin") {
+        document.getElementById("sec-responsabile").style.display = "block";
+      } else if (res.role === "autista") {
+        autistaLoggato = res.nome;
+        document.getElementById("display-nome-autista").innerText = res.nome;
+        document.getElementById("sec-autista").style.display = "block";
+        caricaViaggiAutista();
+      }
+    } else {
+      errBox.style.backgroundColor = "#fee2e2";
+      errBox.style.color = "#b91c1c";
+      errBox.innerText = res.msg;
+    }
+  }).verificaAccesso(tipo, utente, pass);
+}
+
+function switchAdminTab(tab) {
+  const btnAssegna = document.querySelectorAll('.admin-tab-btn')[0];
+  const btnDash = document.querySelectorAll('.admin-tab-btn')[1];
+  if (tab === 'assegna') {
+    btnAssegna.classList.add('active');
+    btnDash.classList.remove('active');
+    document.getElementById('admin-assegna').style.display = 'block';
+    document.getElementById('admin-dashboard').style.display = 'none';
+  } else {
+    btnDash.classList.add('active');
+    btnAssegna.classList.remove('active');
+    document.getElementById('admin-dashboard').style.display = 'block';
+    document.getElementById('admin-assegna').style.display = 'none';
+    caricaDashboardAdmin();
+  }
+}
+
+function caricaDashboardAdmin() {
+  let container = document.getElementById("lista-flotta");
+  container.innerHTML = "<p style='text-align:center;'>Recupero situazione in tempo reale...</p>";
+
+  google.script.run.withSuccessHandler(function(flotta) {
+    if (flotta.length === 0) {
+      container.innerHTML = "<div class='viaggio-card' style='text-align:center;'>✅ Nessun mezzo in viaggio.</div>";
+      return;
+    }
+    container.innerHTML = "";
+    flotta.forEach(v => {
+      let badgeClass = v.stato === "In Corso" ? "badge-corso" : "badge-assegnato";
+      let card = document.createElement("div");
+      card.className = "viaggio-card";
+      card.style.borderLeftColor = v.stato === "In Corso" ? "var(--priamus-orange)" : "var(--priamus-blue)";
+      card.innerHTML = `
+        <div>
+          <span class="badge ${badgeClass}">${v.stato}</span>
+          <strong style="font-size:16px; color: var(--priamus-blue); text-transform:uppercase;">${v.autista}</strong>
+        </div>
+        <div style="font-size:14px; margin-top:8px;"><b>${v.partenza} ➔ ${v.arrivo}</b></div>
+        <div style="font-size:12px; margin-top:8px; color:var(--text-light);">
+          🚚 ${v.mezzo} | 🔗 ${v.rimorchio}<br>
+          📅 Data viaggio: ${v.dataAggiornamento}
+        </div>
+        <button onclick="eliminaViaggioAdmin('${v.id}', '${v.autista}')"
+          style="margin-top:12px; padding:8px 12px; background:transparent; color:#ef4444;
+          border:1px solid #ef4444; border-radius:6px; font-size:12px; font-weight:700;
+          cursor:pointer; width:100%;">🗑️ Elimina viaggio</button>
+      `;
+      container.appendChild(card);
+    });
+  }).getStatoFlotta();
+}
+
+// NUOVO: eliminazione di un viaggio dalla dashboard, con doppia conferma.
+function eliminaViaggioAdmin(id, autista) {
+  if (!confirm("Vuoi davvero ELIMINARE il viaggio di " + autista + "?\nL'operazione non si puo' annullare.")) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      alert(res);
+      caricaDashboardAdmin();
+    })
+    .withFailureHandler(function(err) { alert(err.message); caricaDashboardAdmin(); })
+    .eliminaViaggio(id);
+}
+
+function mostraFormRif() { document.getElementById('form-rifornimento').style.display = 'block'; }
+function nascondiFormRif() { document.getElementById('form-rifornimento').style.display = 'none'; }
+
+function salvaRifornimento() {
+  let mezzo = document.getElementById("rif-mezzo").value; // = targa
+  let litri = document.getElementById("rif-litri").value;
+  let costo = document.getElementById("rif-costo").value;
+  let km = document.getElementById("rif-km").value;
+  let fileInput = document.getElementById("rif-foto").files[0];
+
+  if (!mezzo || !litri || !costo || !km) { alert("Compila tutti i dati del rifornimento prima di confermare!"); return; }
+
+  let statusBox = document.getElementById("aut-status");
+  statusBox.innerText = "Salvataggio e caricamento ricevuta...";
+  statusBox.style.display = "block";
+  statusBox.style.backgroundColor = "#fef9c3"; statusBox.style.color = "#854d0e";
+
+  let dati = { targaMezzo: mezzo, litri: litri, costo: costo, km: km, fotoData: null, fotoNome: null, fotoMime: null };
+
+  if (fileInput) {
+    let reader = new FileReader();
+    reader.onload = function(e) {
+      dati.fotoData = e.target.result;
+      dati.fotoNome = "Ricevuta_Rif_" + mezzo + "_" + fileInput.name;
+      dati.fotoMime = fileInput.type;
+      eseguiSalvataggioRifornimento(dati, statusBox);
+    };
+    reader.readAsDataURL(fileInput);
+  } else {
+    eseguiSalvataggioRifornimento(dati, statusBox);
+  }
+}
+
+function eseguiSalvataggioRifornimento(dati, statusBox) {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      statusBox.innerText = res; statusBox.style.backgroundColor = "#dcfce7"; statusBox.style.color = "#15803d";
+      nascondiFormRif();
+      document.getElementById("rif-litri").value = "";
+      document.getElementById("rif-costo").value = "";
+      document.getElementById("rif-km").value = "";
+      document.getElementById("rif-foto").value = "";
+      setTimeout(() => statusBox.style.display = "none", 4000);
+    })
+    .withFailureHandler(function(err) { statusBox.style.display = "none"; alert(err.message); })
+    .aggiungiRifornimento(dati);
+}
+
+function submitResponsabile() {
+  let chiave = document.getElementById("resp-regola-viaggio").value;
+  if (!chiave) { alert("Seleziona una Tratta dal menu!"); return; }
+
+  // NUOVO: la data del viaggio e' obbligatoria
+  let dataViaggio = document.getElementById("resp-data").value;
+  if (!dataViaggio) { alert("Inserisci la data dei viaggi in alto!"); return; }
+
+  let mezzoScelto = document.getElementById("resp-mezzo").value;         // = targa camion
+  let rimorchioScelto = document.getElementById("resp-rimorchio").value; // = targa rimorchio
+  let regola = regoleGlobali.find(r => r.chiave === chiave);
+
+  let partenzaFinale = regola.partenza;
+  if (!partenzaFinale) {
+    partenzaFinale = ultimeDestinazioniGlobal[mezzoScelto];
+    if (!partenzaFinale) {
+      alert("Impossibile assegnare la partenza in automatico: non ci sono viaggi precedenti per questo mezzo!");
+      return;
+    }
+  }
+
+  let dati = {
+    autista: document.getElementById("resp-autista").value,
+    targaMezzo: mezzoScelto,
+    targaRimorchio: rimorchioScelto,
+    partenza: partenzaFinale,
+    arrivo: regola.arrivo,
+    nota: document.getElementById("resp-nota").value.trim(),
+    dataViaggio: dataViaggio,
+    chiave: chiave
+  };
+
+  let statusBox = document.getElementById("resp-status");
+  statusBox.innerText = "Creazione viaggio..."; statusBox.style.display = "block";
+  statusBox.style.backgroundColor = "#fff7ed"; statusBox.style.color = "#ea580c";
+
+  google.script.run.withSuccessHandler(function(res) {
+    statusBox.style.backgroundColor = "#dcfce7"; statusBox.style.color = "#15803d"; statusBox.innerText = res;
+    // Aggiorno subito in memoria l'ultima destinazione di QUESTO camion (chiave = targa)
+    ultimeDestinazioniGlobal[mezzoScelto] = regola.arrivo;
+    document.getElementById("resp-regola-viaggio").value = "";
+    document.getElementById("resp-nota").value = "";
+    document.getElementById("preview-tratta").style.display = "none";
+  }).assegnaNuovoViaggio(dati);
+}
+
+function caricaViaggiAutista() {
+  let container = document.getElementById("lista-viaggi-attivi");
+  container.innerHTML = "<p style='text-align:center;'>Sincronizzazione tratte...</p>";
+
+  google.script.run.withSuccessHandler(function(viaggi) {
+    if (viaggi.length === 0) {
+      container.innerHTML = "<div class='viaggio-card' style='text-align:center; color:#64748b;'>✅ Non hai nessun viaggio in sospeso.</div>";
+      return;
+    }
+    container.innerHTML = "";
+    viaggi.forEach(v => {
+      let card = document.createElement("div"); card.className = "viaggio-card";
+      let badgeClass = v.stato === "In Corso" ? "badge-corso" : "badge-assegnato";
+
+      // v.mezzo e v.rimorchio arrivano gia' come MODELLO e NOME (tradotti dal server)
+      // NUOVO: l'autista legge la CHIAVE del viaggio (es. "Ostia"), non partenza/arrivo
+      let html = `<div><span class="badge ${badgeClass}">${v.stato}</span><strong style="font-size:18px; color: var(--priamus-blue);">${v.chiave}</strong></div>
+        <div style="font-size:13px; margin: 10px 0; color:#64748b;">🚚 Mezzo: <b>${v.mezzo}</b> &nbsp;|&nbsp; 🔗 Rimorchio: <b>${v.rimorchio}</b></div>`;
+
+      // NUOVO: nota dell'admin, mostrata solo se presente
+      if (v.nota && v.nota !== "") {
+        html += `<div style="font-size:13px; margin:10px 0; padding:10px; background:#fff7ed;
+          border-left:3px solid var(--priamus-orange); border-radius:6px; color:#7c2d12;">
+          📌 <b>Nota:</b> ${v.nota}</div>`;
+      }
+
+      if (v.stato === "Assegnato") {
+        html += `<hr><div class="form-group"><label>KM Partenza</label><input type="number" id="km-partenza-${v.id}" value="${v.kmPrecedente}"></div>
+          <button class="btn-submit" onclick="avviaViaggio('${v.id}')">🏁 Inizia Tratta</button>`;
+      } else if (v.stato === "In Corso") {
+        card.style.borderLeftColor = "var(--priamus-orange)";
+        html += `<hr><div class="form-group"><label>KM Arrivo</label><input type="number" id="km-arrivo-${v.id}"></div>
+          <div class="form-group"><label>Tonnellate</label><input type="number" id="ton-${v.id}"></div>
+          <div class="form-group"><label>Ore (Es. 4:30)</label><input type="text" id="ore-${v.id}"></div>
+          <div class="form-group"><label>Foto Formulario</label><input type="file" id="foto-${v.id}" accept="image/*" capture="environment" style="background:#fff;"></div>
+          <button class="btn-submit" style="background-color: #10b981;" onclick="terminaViaggio('${v.id}')">✅ Chiudi Viaggio</button>`;
+      }
+      card.innerHTML = html;
+      container.appendChild(card);
+    });
+  }).getViaggiAttiviAutista(autistaLoggato);
+}
+
+function avviaViaggio(id) {
+  let km = document.getElementById("km-partenza-" + id).value;
+  if (!km) { alert("Attenzione: Inserisci i chilometri prima di partire!"); return; }
+  google.script.run.withSuccessHandler(caricaViaggiAutista).avviaViaggioAutista(id, km);
+}
+
+function terminaViaggio(id) {
+  let kmArr = document.getElementById("km-arrivo-" + id).value;
+  let ton = document.getElementById("ton-" + id).value;
+  let ore = document.getElementById("ore-" + id).value;
+  let fileInput = document.getElementById("foto-" + id).files[0];
+
+  let statusBox = document.getElementById("aut-status");
+  statusBox.innerText = "Salvataggio in corso...";
+  statusBox.style.display = "block"; statusBox.style.backgroundColor = "#fef9c3"; statusBox.style.color = "#854d0e";
+
+  let dati = { idViaggio: id, kmArrivo: kmArr, tonnellate: ton, oreLavoro: ore, fotoData: null, fotoNome: null, fotoMime: null };
+
+  if (fileInput) {
+    let reader = new FileReader();
+    reader.onload = function(e) {
+      dati.fotoData = e.target.result;
+      dati.fotoNome = "Priamus_Doc_" + id + "_" + fileInput.name;
+      dati.fotoMime = fileInput.type;
+      google.script.run.withSuccessHandler(function() { statusBox.style.display = "none"; caricaViaggiAutista(); })
+        .withFailureHandler(function(err) { statusBox.style.display = "none"; alert(err.message); })
+        .terminaViaggioAutista(dati);
+    };
+    reader.readAsDataURL(fileInput);
+  } else {
+    google.script.run.withSuccessHandler(function() { statusBox.style.display = "none"; caricaViaggiAutista(); })
+      .withFailureHandler(function(err) { statusBox.style.display = "none"; alert(err.message); })
+      .terminaViaggioAutista(dati);
+  }
+}
+</script>
+</body>
+</html>
