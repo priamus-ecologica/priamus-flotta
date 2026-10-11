@@ -361,6 +361,8 @@ function LEGGI_MESSAGGIO() {
     const rim = trovaRimorchio_(pezzi[0], ana, sin);
     if (rim.esito === "ok" && pezzi.length > 1) {
       const est = estraiOrario_(pezzi.slice(1).join(" "));
+      // i ricarichi non sono viaggi: si contano solo gli scarichi
+      if (/^ricaric/i.test(est.testo)) { scartate.push(riga + "  (ricarico: non si conta)"); return; }
       const tra = trovaTratta_(est.testo, ana, sin);
       viaggi.push(nuovoViaggio_(rim.valore, pezzi[0], "ok", est, tra));
       return;
@@ -372,6 +374,7 @@ function LEGGI_MESSAGGIO() {
 
     // --- viaggio SENZA rimorchio (4 assi): "Roda: via ripoli x coget" sotto l'autista
     const est0 = estraiOrario_(riga);
+    if (autistaRaw && /^ricaric/i.test(est0.testo)) { scartate.push(riga + "  (ricarico: non si conta)"); return; }
     const tra0 = trovaTratta_(est0.testo, ana, sin);
     if (autistaRaw && tra0.esito === "ok") { viaggi.push(nuovoViaggio_("", "", esitoSenzaRim_(), est0, tra0)); return; }
 
