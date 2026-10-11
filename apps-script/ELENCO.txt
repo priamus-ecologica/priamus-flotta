@@ -8,3 +8,4 @@ Index.html
 SchedeMezzi.gs
 appsscript.json
 estensioni.gs
+RiepilogoSerale.gs

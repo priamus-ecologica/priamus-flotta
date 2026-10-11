@@ -65,10 +65,16 @@ function onOpen() {
     .addItem("Crea il registro anno", "CREA_REGISTRO_ANNO");
   
 
+  const mail = ui.createMenu("📧 Mail serale")
+    .addItem("Attiva la mail delle 20", "ATTIVA_MAIL_SERALE")
+    .addItem("Mandala adesso (prova)", "PROVA_MAIL_SERALE")
+    .addItem("Disattiva", "DISATTIVA_MAIL_SERALE");
+
   ui.createMenu("🚛 Priamus")
     .addSubMenu(assegna)
     .addSubMenu(costi)
     .addSubMenu(schede)
+    .addSubMenu(mail)
     .addToUi();
 }
 
