@@ -184,16 +184,9 @@ table.mvt { border-collapse: collapse; width: 100%; font-size: 12.5px; }
   </div>
 
   <div id="p-dash" class="hidden">
-    <p class="sub">Situazione flotta in tempo reale</p>
-    <button class="btn" style="padding:10px;font-size:13px;" onclick="caricaFlotta()">🔄 Aggiorna</button>
-    <div id="msg-dash" class="msg hidden"></div>
-    <div id="lista-flotta" style="margin-top:16px;"></div>
-  </div>
-
-  <div id="p-res" class="hidden">
     <div style="display:flex;gap:8px;margin-bottom:16px">
-      <button id="vc-giorno" class="btn" style="flex:1;padding:10px;font-size:12px;margin-top:0" onclick="vistaControlli('giorno')">🚚 Camion del giorno</button>
-      <button id="vc-anom" class="btn ghost" style="flex:1;padding:10px;font-size:12px;margin-top:0" onclick="vistaControlli('anomalie')">🔎 Anomalie</button>
+      <button id="vd-giorno" class="btn" style="flex:1;padding:10px;font-size:12px;margin-top:0" onclick="vistaDash('giorno')">🚚 Camion del giorno</button>
+      <button id="vd-flotta" class="btn ghost" style="flex:1;padding:10px;font-size:12px;margin-top:0" onclick="vistaDash('flotta')">🛣️ Viaggi in corso</button>
     </div>
 
     <div id="vista-giorno">
@@ -207,8 +200,17 @@ table.mvt { border-collapse: collapse; width: 100%; font-size: 12.5px; }
       <div id="g-lista"></div>
     </div>
 
-    <div id="vista-anomalie" class="hidden">
-      <p class="sub" style="margin-top:0">Errori e dati sospetti in viaggi e rifornimenti</p>
+    <div id="vista-flotta" class="hidden">
+      <p class="sub" style="margin-top:0">Viaggi assegnati o in corso, da modificare</p>
+      <button class="btn" style="padding:10px;font-size:13px;margin-top:0" onclick="caricaFlotta()">🔄 Aggiorna</button>
+      <div id="msg-dash" class="msg hidden"></div>
+      <div id="lista-flotta" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
+  <div id="p-res" class="hidden">
+    <div id="vista-anomalie">
+      <p class="sub">Errori e dati sospetti in viaggi e rifornimenti</p>
       <div id="ctrl-periodi" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"></div>
       <div id="ctrl-msg" class="msg hidden"></div>
       <div id="ctrl-kpi"></div>
@@ -519,11 +521,8 @@ function tab(quale) {
     $("t-" + k).classList.toggle("on", k === quale);
     $("p-" + k).classList.toggle("hidden", k !== quale);
   });
-  if (quale === "dash") {
-    if (FLOTTA && FLOTTA.length) disegnaFlotta(FLOTTA);   // subito il gia' scaricato
-    caricaFlotta();                                       // poi aggiorna
-  }
-  if (quale === "res") vistaControlli(VISTA_CTRL);
+  if (quale === "dash") vistaDash(VISTA_DASH);
+  if (quale === "res") caricaControlli();
   if (quale === "mod") apriModifica();
   aggiornaLarghezzaAdmin();
 }
@@ -1137,17 +1136,20 @@ async function ignoraControllo(kEnc) {
 }
 
 // ---------- Camion del giorno ----------
-let VISTA_CTRL = "giorno";
+let VISTA_DASH = "giorno";
 let GIORNO_SEL = null;   // "AAAA-MM-GG"
 
-function vistaControlli(v) {
-  VISTA_CTRL = v;
-  $("vc-giorno").className = "btn " + (v === "giorno" ? "" : "ghost");
-  $("vc-anom").className = "btn " + (v === "anomalie" ? "" : "ghost");
+function vistaDash(v) {
+  VISTA_DASH = v;
+  $("vd-giorno").className = "btn " + (v === "giorno" ? "" : "ghost");
+  $("vd-flotta").className = "btn " + (v === "flotta" ? "" : "ghost");
   $("vista-giorno").classList.toggle("hidden", v !== "giorno");
-  $("vista-anomalie").classList.toggle("hidden", v !== "anomalie");
+  $("vista-flotta").classList.toggle("hidden", v !== "flotta");
   if (v === "giorno") caricaGiornata();
-  else caricaControlli();
+  else {
+    if (FLOTTA && FLOTTA.length) disegnaFlotta(FLOTTA);   // subito il gia' scaricato
+    caricaFlotta();                                       // poi aggiorna
+  }
 }
 
 function spostaGiorno(delta) {
@@ -1244,7 +1246,6 @@ function apriModifica() {
 // freccia "Torna alle anomalie": la segnalazione appena corretta sparisce perché la lista si ricarica
 let MV_DA_CONTROLLI = false;
 function tornaAnomalie() {
-  VISTA_CTRL = "anomalie";
   tab("res");
   window.scrollTo(0, 0);
 }
