@@ -834,6 +834,15 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi) {
     });
   }
 
+  // per le segnalazioni sui viaggi: quale viaggio aprire nella scheda Modifica
+  const perId = {};
+  viaggi.forEach(v => { perId[v.id] = v; });
+  out.forEach(o => {
+    if (o.gruppo !== "Viaggi") return;
+    const v = perId[o.chiave.split("|")[1]];
+    if (v) { o.viaggio = v.id; o.giorno = serialToISO(v.giorno); }
+  });
+
   const peso = { alta: 0, media: 1, bassa: 2 };
   out.sort((a, b) => peso[a.gravita] - peso[b.gravita]);
   return {

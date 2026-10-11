@@ -83,6 +83,9 @@ select:focus, input:focus { border-color: var(--orange); outline: none; backgrou
   border-left: 3px solid var(--orange); border-radius: 6px; color: #7c2d12; }
 hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 .hint { font-size: 12px; color: var(--light); margin-top: 5px; }
+.ctrl-link { cursor: pointer; transition: box-shadow .15s; }
+.ctrl-link:hover { box-shadow: 0 4px 14px rgba(11,25,44,.12); }
+.ctrl-vai { color: var(--orange); font-weight: 700; margin-top: 3px; }
 #v-admin.largo { max-width: 1600px; }
 .mv-filtri { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 10px; }
 .mv-filtri .grp { min-width: 0; }
@@ -1089,20 +1092,22 @@ function disegnaControlli() {
       const col = CTRL_COL[s.gravita];
       const conf = CTRL_CONF === s.chiave;
       const k = encodeURIComponent(s.chiave);
-      return "<div style='background:#fff;border:1px solid var(--border);border-left:5px solid " + col[0] +
+      const vai = s.viaggio ? " onclick=\"vaiAModifica('" + encodeURIComponent(s.viaggio) + "','" + s.giorno + "')\" title='Apri il viaggio nella scheda Modifica'" : "";
+      return "<div class='" + (s.viaggio ? "ctrl-link" : "") + "'" + vai + " style='background:#fff;border:1px solid var(--border);border-left:5px solid " + col[0] +
         ";border-radius:10px;padding:12px;margin-bottom:10px'>" +
         "<div style='font-size:13px;font-weight:700;color:var(--blue)'>" + escH(s.titolo) + "</div>" +
         "<div style='font-size:12.5px;color:#334155;margin-top:4px;line-height:1.45'>" + escH(s.dettaglio) + "</div>" +
         "<div style='display:flex;align-items:center;gap:8px;margin-top:8px'>" +
-          "<div style='flex:1;font-size:11px;color:var(--light)'>" + escH(s.foglio) + (s.riga ? " · riga " + s.riga : "") + "</div>" +
-          "<button onclick=\"ignoraControllo('" + k + "')\" style='border:1px solid " + (conf ? "#dc2626" : "var(--border)") +
+          "<div style='flex:1;font-size:11px;color:var(--light)'>" + escH(s.foglio) + (s.riga ? " · riga " + s.riga : "") +
+            (s.viaggio ? "<div class='ctrl-vai'>✏️ Clicca per correggerlo →</div>" : "") + "</div>" +
+          "<button onclick=\"event.stopPropagation();ignoraControllo('" + k + "')\" style='border:1px solid " + (conf ? "#dc2626" : "var(--border)") +
             ";background:" + (conf ? "#dc2626" : "#fff") + ";color:" + (conf ? "#fff" : "var(--light)") +
             ";border-radius:7px;padding:6px 10px;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer'>" +
             (conf ? "Sicuro? Tocca di nuovo" : "È corretto, ignora") + "</button>" +
         "</div></div>";
     }).join("");
   });
-  html += "<div class='hint' style='margin-top:12px'>Correggi i dati direttamente nel foglio alla riga indicata, poi riapri questa pagina. " +
+  html += "<div class='hint' style='margin-top:12px'>Clicca una segnalazione sui viaggi per aprirla nella scheda Modifica; i rifornimenti si correggono nel foglio alla riga indicata. " +
     "\"Ignora\" serve per le cose giuste che sembrano errori: non verranno più mostrate.</div>";
   $("ctrl-lista").innerHTML = html;
 }
@@ -1225,7 +1230,28 @@ function apriModifica() {
   $("mv-camion").innerHTML = "<option value=''>Tutti i camion</option>" + opzioni(DATI.mezzi, $("mv-camion").value);
   $("mv-autista").innerHTML = "<option value=''>Tutti gli autisti</option>" + opzioni(DATI.autisti, $("mv-autista").value);
   if (!$("mv-chi").value) $("mv-chi").value = mvChi();
-  if (!MV.length) cercaViaggi();
+  if (!MV.length || MV_DA_APRIRE) cercaViaggi();
+}
+
+// dalla scheda Controlli: apre quel viaggio nella scheda Modifica
+let MV_DA_APRIRE = null;
+function vaiAModifica(idEnc, giorno) {
+  MV_DA_APRIRE = decodeURIComponent(idEnc);
+  $("mv-dal").value = giorno; $("mv-al").value = giorno;
+  $("mv-camion").value = ""; $("mv-autista").value = ""; $("mv-stato").value = ""; $("mv-testo").value = "";
+  tab("mod");
+}
+
+function apriDaControlli() {
+  const id = MV_DA_APRIRE;
+  MV_DA_APRIRE = null;
+  if (!id || !MV.find(x => x.id === id)) return;
+  if (mvLargo()) { MV_APERTO = id; disegnaMV(); }
+  else apriViaggioMV(id);
+  setTimeout(() => {
+    const el = document.querySelector(".mvt tr.ed") || $("mvc-" + id);
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, 50);
 }
 
 async function cercaViaggi() {
@@ -1239,6 +1265,7 @@ async function cercaViaggi() {
     });
     MV = r.viaggi || [];
     disegnaMV(r);
+    apriDaControlli();
   } catch (e) {
     $("mv-lista").innerHTML = "";
     msg("mv-msg", e.message, "err"); mostra("mv-msg");
