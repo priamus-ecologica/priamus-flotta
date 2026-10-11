@@ -671,19 +671,6 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi) {
     }
   });
 
-  // viaggi doppi: stesso camion, stesso giorno, stessi km di partenza e arrivo
-  const visti = {};
-  viaggi.forEach(v => {
-    if (v.stato !== "Completato" || !v.targa || !v.km || v.kmP == null) return;
-    const k = v.targa + "|" + v.giorno + "|" + v.kmP + "|" + v.kmA;
-    if (visti[k] && nel(v.giorno)) {
-      segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-DOPPIO|" + v.id,
-        titolo: "Possibile viaggio doppio · " + nome(v.targa),
-        dettaglio: descV(v) + ". Stessi km (" + kmC(v.kmP) + " → " + kmC(v.kmA) + ") del viaggio alla riga " + visti[k].riga + ".",
-        foglio: "REGISTRO_VIAGGI", riga: v.riga });
-    } else if (!visti[k]) visti[k] = v;
-  });
-
   // contachilometri: ogni viaggio deve partire dove era arrivato il precedente dello stesso camion
   const perTarga = {};
   viaggi.forEach(v => {
@@ -692,7 +679,7 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi) {
   });
   Object.keys(perTarga).forEach(t => {
     const l = perTarga[t].sort((a, b) => a.giorno - b.giorno || a.kmP - b.kmP);
-    // togli i doppi già segnalati
+    // due viaggi uguali (stesso giorno e stessi km) contano come uno solo
     const u = l.filter((v, i) => !(i > 0 && v.giorno === l[i - 1].giorno && v.kmP === l[i - 1].kmP && v.kmA === l[i - 1].kmA));
     const salta = {};
     // viaggio "fuori sequenza": salto enorme prima e dopo, in senso opposto
