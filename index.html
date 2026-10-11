@@ -83,6 +83,33 @@ select:focus, input:focus { border-color: var(--orange); outline: none; backgrou
   border-left: 3px solid var(--orange); border-radius: 6px; color: #7c2d12; }
 hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 .hint { font-size: 12px; color: var(--light); margin-top: 5px; }
+#v-admin.largo { max-width: 1600px; }
+.mv-filtri { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 10px; }
+.mv-filtri .grp { min-width: 0; }
+.mvt-wrap { overflow: auto; max-height: 72vh; border: 1px solid var(--border); border-radius: 10px; }
+table.mvt { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.mvt th { position: sticky; top: 0; z-index: 1; background: #f1f5f9; text-align: left; white-space: nowrap;
+  padding: 9px 7px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--light); }
+.mvt td { padding: 7px; border-top: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+.mvt .num { text-align: right; }
+.mvt tr.r { cursor: pointer; }
+.mvt tr.r:hover td { background: #fff7ed; }
+.mvt tr.ed td { background: #fffbeb; border-top: 2px solid var(--orange); border-bottom: 2px solid var(--orange); }
+.mvt input, .mvt select { padding: 6px 7px; font-size: 13px; border-radius: 6px; }
+.mvt-sub { color: var(--light); font-size: 11px; }
+.mvt-nota { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.mvt-stato { font-weight: 700; font-size: 11.5px; }
+.mvt-mod { color: var(--light); font-size: 11px; }
+.mvt tr.r:hover .mvt-mod { color: var(--orange); font-weight: 700; }
+.mvt-avviso { color: #dc2626; font-size: 10.5px; font-weight: 700; white-space: normal; max-width: 90px; }
+.mvt td:first-child, .mvt th:first-child { position: sticky; left: 0; background: #fff; z-index: 1; }
+.mvt td:last-child, .mvt th:last-child { position: sticky; right: 0; background: #fff; z-index: 1;
+  box-shadow: -6px 0 8px -6px rgba(11,25,44,.18); }
+.mvt th:first-child, .mvt th:last-child { background: #f1f5f9; z-index: 2; }
+.mvt tr.ed td:first-child, .mvt tr.ed td:last-child { background: #fffbeb; }
+.mvt-btn { padding: 8px 12px; border: none; border-radius: 7px; background: var(--blue); color: #fff; font-weight: 700;
+  font-size: 12px; cursor: pointer; font-family: inherit; }
+.mvt-btn.ghost { background: #fff; color: var(--light); border: 1px solid var(--border); }
 #offline { position: fixed; top: 0; left: 0; right: 0; background: #b91c1c; color: #fff;
   text-align: center; padding: 7px; font-size: 13px; font-weight: 600; z-index: 500; }
 </style>
@@ -183,18 +210,14 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 
   <div id="p-mod" class="hidden">
     <p class="sub">Correggi i viaggi, anche quelli chiusi, senza toccare il foglio</p>
-    <div class="grp"><label>Chi modifica</label><input type="text" id="mv-chi" placeholder="Il tuo nome" onchange="mvSalvaChi(this.value.trim())"></div>
-    <div style="display:flex;gap:8px">
-      <div class="grp" style="flex:1;min-width:0"><label>Dal</label><input type="date" id="mv-dal"></div>
-      <div class="grp" style="flex:1;min-width:0"><label>Al</label><input type="date" id="mv-al"></div>
-    </div>
-    <div style="display:flex;gap:8px">
-      <div class="grp" style="flex:1;min-width:0"><label>Camion</label><select id="mv-camion"></select></div>
-      <div class="grp" style="flex:1;min-width:0"><label>Autista</label><select id="mv-autista"></select></div>
-    </div>
-    <div style="display:flex;gap:8px">
-      <div class="grp" style="flex:1;min-width:0"><label>Stato</label><select id="mv-stato"><option value="">Tutti</option><option>Completato</option><option>In Corso</option><option>Assegnato</option></select></div>
-      <div class="grp" style="flex:1;min-width:0"><label>Cerca</label><input type="text" id="mv-testo" placeholder="tratta, nota…"></div>
+    <div class="mv-filtri">
+      <div class="grp"><label>Chi modifica</label><input type="text" id="mv-chi" placeholder="Il tuo nome" onchange="mvSalvaChi(this.value.trim())"></div>
+      <div class="grp"><label>Dal</label><input type="date" id="mv-dal"></div>
+      <div class="grp"><label>Al</label><input type="date" id="mv-al"></div>
+      <div class="grp"><label>Camion</label><select id="mv-camion"></select></div>
+      <div class="grp"><label>Autista</label><select id="mv-autista"></select></div>
+      <div class="grp"><label>Stato</label><select id="mv-stato"><option value="">Tutti</option><option>Completato</option><option>In Corso</option><option>Assegnato</option></select></div>
+      <div class="grp"><label>Cerca</label><input type="text" id="mv-testo" placeholder="tratta, nota…" onkeydown="if(event.key==='Enter')cercaViaggi()"></div>
     </div>
     <button class="btn" style="margin-top:0" onclick="cercaViaggi()">Cerca viaggi</button>
     <div id="mv-msg" class="msg hidden"></div>
@@ -492,6 +515,7 @@ function tab(quale) {
   }
   if (quale === "res") vistaControlli(VISTA_CTRL);
   if (quale === "mod") apriModifica();
+  aggiornaLarghezzaAdmin();
 }
 
 function preview() {
@@ -1225,6 +1249,13 @@ function euro(n) { return n == null || n === "" ? "—" : Number(n).toLocaleStri
 function dataIt(iso) { return iso ? iso.split("-").reverse().join("/") : "—"; }
 
 function disegnaMV(info) {
+  if (info) MV_INFO = info; else info = MV_INFO;
+  if (MV.length && mvLargo()) {
+    $("mv-lista").innerHTML = "<div class='hint' style='margin-bottom:8px'>" + (info && info.troppi ? "Mostro i primi 300 di " + info.totale + ": restringi i filtri." : MV.length + " viaggi") +
+      " · clicca una riga per modificarla</div>" + tabellaMV();
+    if (MV_APERTO) segnaMV(MV_APERTO);
+    return;
+  }
   if (!MV.length) { $("mv-lista").innerHTML = "<div class='viaggio' style='text-align:center;color:var(--light)'>Nessun viaggio trovato.</div>"; return; }
   const col = { "Completato": "#16a34a", "In Corso": "#0284c7", "Assegnato": "#ea580c" };
   let html = "<div class='hint' style='margin-bottom:8px'>" + (info && info.troppi ? "Mostro i primi 300 di " + info.totale + ": restringi i filtri." : MV.length + " viaggi") + "</div>";
@@ -1244,6 +1275,7 @@ function disegnaMV(info) {
 }
 
 function apriViaggioMV(id) {
+  if (mvLargo()) { MV_APERTO = (MV_APERTO === id ? null : id); disegnaMV(); return; }
   if (MV_APERTO && MV_APERTO !== id && $("mvf-" + MV_APERTO)) $("mvf-" + MV_APERTO).innerHTML = "";
   if (MV_APERTO === id) { $("mvf-" + id).innerHTML = ""; MV_APERTO = null; return; }
   MV_APERTO = id;
@@ -1339,6 +1371,15 @@ function cambiMV(id) {
 }
 
 function aggiornaKmMV(id) {
+  if (mvLargo()) {
+    const p = $("mv-kmP-" + id).value, a = $("mv-kmA-" + id).value, box = $("mv-kmcalc-" + id);
+    if (p === "" || a === "") box.textContent = "";
+    else { const d = Math.round((Number(a) - Number(p)) * 10) / 10;
+      box.innerHTML = "<b style='color:" + (d < 0 || d > 900 ? "#dc2626" : "var(--blue)") + "'>" + d.toLocaleString("it-IT") + "</b>" + (d < 0 ? " ⚠️" : d > 900 ? " ⚠️" : ""); }
+    const t = Number($("mv-ton-" + id).value);
+    $("mv-tonhint-" + id).textContent = t > 60 ? "kg? = " + (t / 1000).toLocaleString("it-IT") + " t" : "";
+    return;
+  }
   const p = Number($("mv-kmP-" + id).value), a = Number($("mv-kmA-" + id).value);
   const box = $("mv-kmcalc-" + id);
   if ($("mv-kmP-" + id).value === "" || $("mv-kmA-" + id).value === "") { box.textContent = ""; }
@@ -1377,6 +1418,100 @@ async function salvaViaggioMV(id) {
     b.disabled = false; segnaMV(id);
     msg("mv-msg", e.message, "err"); mostra("mv-msg"); window.scrollTo(0, 0);
   }
+}
+
+// ---------- Modifica viaggi: vista a tabella per il computer ----------
+let MV_INFO = null;
+function mvLargo() { return window.innerWidth >= 900; }
+
+function aggiornaLarghezzaAdmin() {
+  const mod = !$("p-mod").classList.contains("hidden");
+  $("v-admin").classList.toggle("largo", mod && mvLargo());
+}
+
+let _mvModo = null;
+window.addEventListener("resize", () => {
+  const m = mvLargo();
+  if (_mvModo !== null && m !== _mvModo && !$("p-mod").classList.contains("hidden")) {
+    aggiornaLarghezzaAdmin();
+    MV_APERTO = null;
+    if (MV.length) disegnaMV(MV_INFO);
+  }
+  _mvModo = m;
+});
+
+const MV_COLONNE = [
+  ["Data", ""], ["Stato", ""], ["Tratta", ""], ["Autista", ""], ["Camion", ""], ["Rimorchio", ""],
+  ["Inizio", ""], ["Fine", ""], ["KM part.", "num"], ["KM arr.", "num"], ["Km", "num"], ["N. viaggi", "num"],
+  ["Tonn.", "num"], ["Ore", "num"], ["Da tariffa", "num"], ["Ric. manuale", "num"], ["Totale", "num"],
+  ["Nota ufficio", ""], ["Nota autista", ""], ["Foto", ""], ["", ""]
+];
+
+function tabellaMV() {
+  const col = { "Completato": "#16a34a", "In Corso": "#0284c7", "Assegnato": "#ea580c" };
+  const n = x => (x === "" || x == null) ? "" : Number(x).toLocaleString("it-IT");
+  let h = "<div class='mvt-wrap'><table class='mvt'><thead><tr>" +
+    MV_COLONNE.map(c => "<th class='" + c[1] + "'>" + c[0] + "</th>").join("") + "</tr></thead><tbody>";
+  MV.forEach(v => {
+    if (v.id === MV_APERTO) { h += rigaEditMV(v); return; }
+    const ore = v.ore === "" ? "" : (Math.floor(v.ore) + ":" + String(Math.round((v.ore - Math.floor(v.ore)) * 60)).padStart(2, "0"));
+    h += "<tr class='r' onclick=\"apriViaggioMV('" + v.id + "')\" title='Clicca per modificare'>" +
+      "<td>" + dataIt(v.data) + "</td>" +
+      "<td><span class='mvt-stato' style='color:" + (col[v.stato] || "#64748b") + "'>● " + escH(v.stato || "—") + "</span></td>" +
+      "<td><b>" + escH(v.tratta || "—") + "</b></td>" +
+      "<td>" + escH(v.autista) + "</td>" +
+      "<td>" + escH(v.nomeCamion) + (v.nomeCamion !== v.targa ? " <span class='mvt-sub'>" + escH(v.targa) + "</span>" : "") + "</td>" +
+      "<td>" + escH(v.rimorchio) + "</td>" +
+      "<td>" + escH(v.oraInizio) + "</td><td>" + escH(v.oraFine) + "</td>" +
+      "<td class='num'>" + n(v.kmP) + "</td><td class='num'>" + n(v.kmA) + "</td>" +
+      "<td class='num'><b" + ((v.km != null && (v.km < 0 || v.km > 900)) ? " style='color:#dc2626'" : "") + ">" + n(v.km) + "</b></td>" +
+      "<td class='num'>" + n(v.nViaggi) + "</td>" +
+      "<td class='num'" + (Number(v.ton) > 60 ? " style='color:#dc2626' title='Sembrano kg'" : "") + ">" + n(v.ton) + "</td>" +
+      "<td class='num'>" + ore + "</td>" +
+      "<td class='num'>" + euro(v.ricavoTariffa) + "</td>" +
+      "<td class='num'>" + (v.ricMan === "" ? "" : euro(v.ricMan)) + "</td>" +
+      "<td class='num'><b>" + euro(v.ricavoTotale) + "</b></td>" +
+      "<td class='mvt-nota'>" + escH(v.nota) + "</td><td class='mvt-nota'>" + escH(v.notaAut) + "</td>" +
+      "<td>" + v.foto.map((u, i) => "<a href='" + escH(u) + "' target='_blank' rel='noopener' onclick='event.stopPropagation()'>📄" + (v.foto.length > 1 ? i + 1 : "") + "</a>").join(" ") + "</td>" +
+      "<td><span class='mvt-mod'>✏️ Modifica</span></td></tr>";
+  });
+  return h + "</tbody></table></div>";
+}
+
+function rigaEditMV(v) {
+  const id = v.id;
+  const inp = (k, tipo, val, w, extra) => "<input type='" + tipo + "' id='mv-" + k + "-" + id + "' value=\"" + escH(val == null ? "" : val) +
+    "\" style='width:" + w + "px' " + (extra || "") + " oninput=\"segnaMV('" + id + "')\">";
+  const sel = (k, opts, w) => "<select id='mv-" + k + "-" + id + "' style='width:" + w + "px' onchange=\"segnaMV('" + id + "')\">" + opts + "</select>";
+  const extraOpt = (val, lista) => (val && !(lista || []).some(x => (typeof x === "string" ? x : x.targa) === val))
+    ? "<option value=\"" + escH(val) + "\" selected>" + escH(val) + " (non in elenco)</option>" : "";
+  const vuota = "<option value=''>—</option>";
+  const hh = Math.floor(Number(v.ore) || 0), mm = Math.round(((Number(v.ore) || 0) - hh) * 60);
+  return "<tr class='ed'>" +
+    "<td>" + inp("data", "date", v.data, 135) + "</td>" +
+    "<td>" + sel("stato", vuota + STATI_MV.map(s => "<option" + (s === v.stato ? " selected" : "") + ">" + s + "</option>").join(""), 115) + "</td>" +
+    "<td>" + sel("tratta", vuota + extraOpt(v.tratta, (DATI.regole || []).map(r => r.chiave)) + opzioniTratte(v.tratta), 170) + "</td>" +
+    "<td>" + sel("autista", vuota + extraOpt(v.autista, DATI.autisti) + opzioni(DATI.autisti, v.autista), 170) + "</td>" +
+    "<td>" + sel("targa", vuota + extraOpt(v.targa, DATI.mezzi) + opzioni(DATI.mezzi, v.targa), 150) + "</td>" +
+    "<td>" + sel("rimorchio", "<option value=''>— nessuno —</option>" + extraOpt(v.rimorchio, DATI.rimorchi) + opzioni(DATI.rimorchi, v.rimorchio), 110) + "</td>" +
+    "<td>" + inp("oraInizio", "text", v.oraInizio, 62, "placeholder='06:30'") + "</td>" +
+    "<td>" + inp("oraFine", "text", v.oraFine, 62, "placeholder='17:30'") + "</td>" +
+    "<td>" + inp("kmP", "number", v.kmP, 95, "step='0.1'") + "</td>" +
+    "<td>" + inp("kmA", "number", v.kmA, 95, "step='0.1'") + "</td>" +
+    "<td class='num'><span id='mv-kmcalc-" + id + "'></span></td>" +
+    "<td>" + inp("nViaggi", "number", v.nViaggi, 55, "min='1' step='1'") + "</td>" +
+    "<td>" + inp("ton", "number", v.ton, 75, "step='0.01'") + "<div id='mv-tonhint-" + id + "' class='mvt-avviso'></div></td>" +
+    "<td style='white-space:nowrap'><select id='mv-oreh-" + id + "' style='width:62px' onchange=\"segnaMV('" + id + "')\">" + opzioniOreSel(v.ore === "" ? "" : hh) + "</select>" +
+      " <select id='mv-orem-" + id + "' style='width:62px' onchange=\"segnaMV('" + id + "')\">" + opzioniMinSel(v.ore === "" ? "" : mm) + "</select></td>" +
+    "<td class='num'>" + euro(v.ricavoTariffa) + "</td>" +
+    "<td>" + inp("ricMan", "number", v.ricMan, 85, "step='0.01' title='Si somma al ricavo da tariffa'") + "</td>" +
+    "<td class='num'><b>" + euro(v.ricavoTotale) + "</b></td>" +
+    "<td>" + inp("nota", "text", v.nota, 170) + "</td>" +
+    "<td>" + inp("notaAut", "text", v.notaAut, 170) + "</td>" +
+    "<td>" + v.foto.map((u, i) => "<a href='" + escH(u) + "' target='_blank' rel='noopener'>📄" + (v.foto.length > 1 ? i + 1 : "") + "</a>").join(" ") + "</td>" +
+    "<td style='white-space:nowrap'><button class='mvt-btn' id='mv-salva-" + id + "' disabled style='opacity:.45' onclick=\"salvaViaggioMV('" + id + "')\">Nessuna modifica</button> " +
+      "<button class='mvt-btn ghost' onclick=\"apriViaggioMV('" + id + "')\">Annulla</button></td>" +
+  "</tr>";
 }
 
 // ---------- rifornimento ----------
