@@ -122,6 +122,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
     <button class="tab on" id="t-ass" onclick="tab('ass')">📝 Assegna</button>
     <button class="tab" id="t-dash" onclick="tab('dash')">📊 Dashboard</button>
     <button class="tab" id="t-res" onclick="tab('res')">🔎 Controlli</button>
+    <button class="tab" id="t-mod" onclick="tab('mod')">✏️ Modifica</button>
   </div>
 
   <div id="p-ass">
@@ -178,6 +179,26 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
       <div id="ctrl-kpi"></div>
       <div id="ctrl-lista"></div>
     </div>
+  </div>
+
+  <div id="p-mod" class="hidden">
+    <p class="sub">Correggi i viaggi, anche quelli chiusi, senza toccare il foglio</p>
+    <div class="grp"><label>Chi modifica</label><input type="text" id="mv-chi" placeholder="Il tuo nome" onchange="mvSalvaChi(this.value.trim())"></div>
+    <div style="display:flex;gap:8px">
+      <div class="grp" style="flex:1;min-width:0"><label>Dal</label><input type="date" id="mv-dal"></div>
+      <div class="grp" style="flex:1;min-width:0"><label>Al</label><input type="date" id="mv-al"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <div class="grp" style="flex:1;min-width:0"><label>Camion</label><select id="mv-camion"></select></div>
+      <div class="grp" style="flex:1;min-width:0"><label>Autista</label><select id="mv-autista"></select></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <div class="grp" style="flex:1;min-width:0"><label>Stato</label><select id="mv-stato"><option value="">Tutti</option><option>Completato</option><option>In Corso</option><option>Assegnato</option></select></div>
+      <div class="grp" style="flex:1;min-width:0"><label>Cerca</label><input type="text" id="mv-testo" placeholder="tratta, nota…"></div>
+    </div>
+    <button class="btn" style="margin-top:0" onclick="cercaViaggi()">Cerca viaggi</button>
+    <div id="mv-msg" class="msg hidden"></div>
+    <div id="mv-lista" style="margin-top:14px"></div>
   </div>
 
   <button class="btn ghost" style="margin-top:26px;" onclick="esci()">Esci</button>
@@ -461,7 +482,7 @@ function esci() {
 
 // ---------- admin ----------
 function tab(quale) {
-  ["ass", "dash", "res"].forEach(k => {
+  ["ass", "dash", "res", "mod"].forEach(k => {
     $("t-" + k).classList.toggle("on", k === quale);
     $("p-" + k).classList.toggle("hidden", k !== quale);
   });
@@ -470,6 +491,7 @@ function tab(quale) {
     caricaFlotta();                                       // poi aggiorna
   }
   if (quale === "res") vistaControlli(VISTA_CTRL);
+  if (quale === "mod") apriModifica();
 }
 
 function preview() {
@@ -1160,6 +1182,201 @@ function disegnaGiornata(g) {
       "<div style='font-size:11.5px;color:" + (lungo ? "#b45309" : "var(--light)") + "'>" + escH(da) + "</div></div></div>";
   }).join("");
   $("g-lista").innerHTML = html;
+}
+
+// ============================================================
+//  MODIFICA VIAGGI (ufficio)
+// ============================================================
+let MV = [];            // viaggi trovati
+let MV_APERTO = null;   // id del viaggio aperto nel modulo
+
+function mvChi() { try { return localStorage.getItem("priamus_chi") || ""; } catch (e) { return ""; } }
+function mvSalvaChi(v) { try { localStorage.setItem("priamus_chi", v); } catch (e) {} }
+
+function apriModifica() {
+  if (!$("mv-dal").value) {
+    const oggi = new Date(), ieri = new Date(); ieri.setDate(ieri.getDate() - 1);
+    $("mv-dal").value = isoLocale(ieri); $("mv-al").value = isoLocale(oggi);
+  }
+  $("mv-camion").innerHTML = "<option value=''>Tutti i camion</option>" + opzioni(DATI.mezzi, $("mv-camion").value);
+  $("mv-autista").innerHTML = "<option value=''>Tutti gli autisti</option>" + opzioni(DATI.autisti, $("mv-autista").value);
+  if (!$("mv-chi").value) $("mv-chi").value = mvChi();
+  if (!MV.length) cercaViaggi();
+}
+
+async function cercaViaggi() {
+  MV_APERTO = null;
+  $("mv-lista").innerHTML = "<p style='text-align:center;color:var(--light);padding:18px'>Ricerca…</p>";
+  nascondi("mv-msg");
+  try {
+    const r = await api("cercaViaggi", {
+      dal: $("mv-dal").value, al: $("mv-al").value, targa: $("mv-camion").value,
+      autista: $("mv-autista").value, stato: $("mv-stato").value, testo: $("mv-testo").value.trim()
+    });
+    MV = r.viaggi || [];
+    disegnaMV(r);
+  } catch (e) {
+    $("mv-lista").innerHTML = "";
+    msg("mv-msg", e.message, "err"); mostra("mv-msg");
+  }
+}
+
+function euro(n) { return n == null || n === "" ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"; }
+function dataIt(iso) { return iso ? iso.split("-").reverse().join("/") : "—"; }
+
+function disegnaMV(info) {
+  if (!MV.length) { $("mv-lista").innerHTML = "<div class='viaggio' style='text-align:center;color:var(--light)'>Nessun viaggio trovato.</div>"; return; }
+  const col = { "Completato": "#16a34a", "In Corso": "#0284c7", "Assegnato": "#ea580c" };
+  let html = "<div class='hint' style='margin-bottom:8px'>" + (info && info.troppi ? "Mostro i primi 300 di " + info.totale + ": restringi i filtri." : MV.length + " viaggi") + "</div>";
+  html += MV.map(v =>
+    "<div id='mvc-" + v.id + "' style='background:#fff;border:1px solid var(--border);border-left:5px solid " + (col[v.stato] || "#94a3b8") +
+    ";border-radius:10px;margin-bottom:8px'>" +
+      "<div onclick=\"apriViaggioMV('" + v.id + "')\" style='padding:11px;cursor:pointer'>" +
+        "<div style='display:flex;gap:8px'><div style='flex:1;min-width:0'>" +
+          "<div style='font-size:13px;font-weight:700;color:var(--blue)'>" + dataIt(v.data) + " · " + escH(v.tratta || "(senza tratta)") + "</div>" +
+          "<div style='font-size:12px;color:var(--light)'>" + escH(v.autista) + " · " + escH(v.nomeCamion) + " " + escH(v.targa) + "</div></div>" +
+          "<div style='text-align:right;font-size:12px'><div style='font-weight:700;color:var(--blue)'>" + (v.km != null ? v.km.toLocaleString("it-IT") + " km" : "— km") + "</div>" +
+          "<div style='color:var(--light)'>" + euro(v.ricavoTotale) + "</div></div></div>" +
+      "</div>" +
+      "<div id='mvf-" + v.id + "'></div>" +
+    "</div>").join("");
+  $("mv-lista").innerHTML = html;
+}
+
+function apriViaggioMV(id) {
+  if (MV_APERTO && MV_APERTO !== id && $("mvf-" + MV_APERTO)) $("mvf-" + MV_APERTO).innerHTML = "";
+  if (MV_APERTO === id) { $("mvf-" + id).innerHTML = ""; MV_APERTO = null; return; }
+  MV_APERTO = id;
+  const v = MV.find(x => x.id === id);
+  $("mvf-" + id).innerHTML = moduloMV(v);
+  aggiornaKmMV(id);
+}
+
+function campoMV(etichetta, html, nota) {
+  return "<div class='grp'><label>" + etichetta + "</label>" + html + (nota ? "<div class='hint'>" + nota + "</div>" : "") + "</div>";
+}
+
+function moduloMV(v) {
+  const id = v.id, inp = (k, tipo, val, extra) =>
+    "<input type='" + tipo + "' id='mv-" + k + "-" + id + "' value=\"" + escH(val == null ? "" : val) + "\" " + (extra || "") + " oninput=\"segnaMV('" + id + "')\">";
+  const sel = (k, opts) => "<select id='mv-" + k + "-" + id + "' onchange=\"segnaMV('" + id + "')\">" + opts + "</select>";
+  const conVuoto = (lista, scelto, vuoto) => "<option value=''>" + vuoto + "</option>" + opzioni(lista, scelto);
+  // un valore che non e' piu' negli elenchi resta visibile, cosi' non si perde
+  const extraOpt = (val, lista) => (val && !(lista || []).some(x => (typeof x === "string" ? x : x.targa) === val))
+    ? "<option value=\"" + escH(val) + "\" selected>" + escH(val) + " (non in elenco)</option>" : "";
+  const h = Math.floor(Number(v.ore) || 0), m = Math.round(((Number(v.ore) || 0) - h) * 60);
+  const sez = t => "<div style='font-size:11px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 6px'>" + t + "</div>";
+
+  return "<div style='padding:0 12px 12px;border-top:1px dashed var(--border)'>" +
+    sez("1 · Viaggio") +
+    campoMV("Data", inp("data", "date", v.data)) +
+    campoMV("Stato", sel("stato", "<option value=''>— scegli —</option>" + STATI_MV.map(s => "<option" + (s === v.stato ? " selected" : "") + ">" + s + "</option>").join(""))) +
+    campoMV("Tratta", sel("tratta", "<option value=''>— scegli —</option>" + extraOpt(v.tratta, (DATI.regole || []).map(r => r.chiave)) + opzioniTratte(v.tratta)),
+      "Ora: " + escH(v.partenza || "—") + " → " + escH(v.arrivo || "—") + ". Cambiando tratta, partenza, arrivo e ricavo si aggiornano da soli.") +
+    campoMV("Autista", sel("autista", "<option value=''>— scegli —</option>" + extraOpt(v.autista, DATI.autisti) + opzioni(DATI.autisti, v.autista))) +
+    campoMV("Camion", sel("targa", "<option value=''>— scegli —</option>" + extraOpt(v.targa, DATI.mezzi) + opzioni(DATI.mezzi, v.targa))) +
+    campoMV("Rimorchio", sel("rimorchio", extraOpt(v.rimorchio, DATI.rimorchi) + conVuoto(DATI.rimorchi, v.rimorchio, "— nessuno —"))) +
+
+    sez("2 · Orari e chilometri") +
+    "<div style='display:flex;gap:8px'><div style='flex:1;min-width:0'>" + campoMV("Ora inizio", inp("oraInizio", "text", v.oraInizio, "placeholder='06:30' inputmode='numeric'")) + "</div>" +
+      "<div style='flex:1;min-width:0'>" + campoMV("Ora fine", inp("oraFine", "text", v.oraFine, "placeholder='17:30' inputmode='numeric'")) + "</div></div>" +
+    "<div style='display:flex;gap:8px'><div style='flex:1;min-width:0'>" + campoMV("KM partenza", inp("kmP", "number", v.kmP, "inputmode='decimal' step='0.1'")) + "</div>" +
+      "<div style='flex:1;min-width:0'>" + campoMV("KM arrivo", inp("kmA", "number", v.kmA, "inputmode='decimal' step='0.1'")) + "</div></div>" +
+    "<div id='mv-kmcalc-" + id + "' class='hint' style='margin:-6px 0 10px'></div>" +
+
+    sez("3 · Lavoro") +
+    campoMV("Numero viaggi", inp("nViaggi", "number", v.nViaggi, "inputmode='numeric' min='1' step='1'")) +
+    campoMV("Tonnellate", inp("ton", "number", v.ton, "inputmode='decimal' step='0.01'"), "<span id='mv-tonhint-" + id + "'>In tonnellate (es. 27,4), non in kg.</span>") +
+    campoMV("Ore di lavoro",
+      "<div style='display:flex;gap:8px'><select id='mv-oreh-" + id + "' style='flex:1' onchange=\"segnaMV('" + id + "')\">" + opzioniOreSel(v.ore === "" ? "" : h) + "</select>" +
+      "<select id='mv-orem-" + id + "' style='flex:1' onchange=\"segnaMV('" + id + "')\">" + opzioniMinSel(v.ore === "" ? "" : m) + "</select></div>") +
+
+    sez("4 · Ricavo") +
+    "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px'>" +
+      "<div style='background:#f8fafc;border-radius:8px;padding:9px'><div class='hint' style='margin:0'>Da tariffa</div><b>" + euro(v.ricavoTariffa) + "</b></div>" +
+      "<div style='background:#f8fafc;border-radius:8px;padding:9px'><div class='hint' style='margin:0'>Totale attuale</div><b>" + euro(v.ricavoTotale) + "</b></div></div>" +
+    campoMV("Ricavo manuale (€)", inp("ricMan", "number", v.ricMan, "inputmode='decimal' step='0.01'"),
+      "Si SOMMA al ricavo da tariffa. Lascia vuoto se non serve.") +
+
+    sez("5 · Note") +
+    campoMV("Nota ufficio", inp("nota", "text", v.nota)) +
+    campoMV("Nota autista", inp("notaAut", "text", v.notaAut)) +
+    (v.foto.length ? campoMV("Foto formulario", v.foto.map((u, i) => "<a href='" + escH(u) + "' target='_blank' rel='noopener' style='margin-right:10px'>📄 Foto " + (i + 1) + "</a>").join("")) : "") +
+
+    "<div class='hint' style='margin-top:10px'>Riga " + v.riga + " di REGISTRO_VIAGGI · tipo " + escH(v.tipo || "—") + " · " + escH(v.categoria || "—") + "</div>" +
+    "<button class='btn' id='mv-salva-" + id + "' disabled style='opacity:.45' onclick=\"salvaViaggioMV('" + id + "')\">Nessuna modifica</button>" +
+    "<button class='btn ghost' style='padding:10px;font-size:13px' onclick=\"apriViaggioMV('" + id + "')\">Chiudi senza salvare</button>" +
+  "</div>";
+}
+
+const STATI_MV = ["Assegnato", "In Corso", "Completato"];
+function opzioniOreSel(sc) {
+  let h = "<option value=''>— ore —</option>";
+  for (let i = 0; i <= 18; i++) h += "<option value='" + i + "'" + (sc !== "" && Number(sc) === i ? " selected" : "") + ">" + i + (i === 1 ? " ora" : " ore") + "</option>";
+  return h;
+}
+function opzioniMinSel(sc) {
+  let h = "<option value=''>— minuti —</option>";
+  [0, 15, 30, 45].forEach(x => h += "<option value='" + x + "'" + (sc !== "" && Number(sc) === x ? " selected" : "") + ">" + x + " min</option>");
+  if (sc !== "" && [0, 15, 30, 45].indexOf(Number(sc)) < 0) h += "<option value='" + sc + "' selected>" + sc + " min</option>";
+  return h;
+}
+
+// legge il modulo e restituisce solo i campi cambiati
+function cambiMV(id) {
+  const v = MV.find(x => x.id === id), dopo = {}, prima = {};
+  const leggi = k => { const e = $("mv-" + k + "-" + id); return e ? e.value.trim() : ""; };
+  const num = s => s === "" ? "" : Number(String(s).replace(",", "."));
+  const conf = (k, nuovo) => {
+    const vecchio = v[k] == null ? "" : v[k];
+    if (String(nuovo) !== String(vecchio)) { dopo[k] = nuovo; prima[k] = vecchio; }
+  };
+  ["data", "stato", "tratta", "autista", "targa", "rimorchio", "oraInizio", "oraFine", "nota", "notaAut"].forEach(k => conf(k, leggi(k)));
+  ["kmP", "kmA", "nViaggi", "ton", "ricMan"].forEach(k => conf(k, num(leggi(k))));
+  const oh = $("mv-oreh-" + id).value, om = $("mv-orem-" + id).value;
+  conf("ore", (oh === "" && om === "") ? "" : Math.round((Number(oh || 0) + Number(om || 0) / 60) * 100) / 100);
+  return { dopo, prima };
+}
+
+function aggiornaKmMV(id) {
+  const p = Number($("mv-kmP-" + id).value), a = Number($("mv-kmA-" + id).value);
+  const box = $("mv-kmcalc-" + id);
+  if ($("mv-kmP-" + id).value === "" || $("mv-kmA-" + id).value === "") { box.textContent = ""; }
+  else if (a < p) { box.innerHTML = "<span style='color:#dc2626;font-weight:700'>⚠️ I km di arrivo sono più bassi di quelli di partenza</span>"; }
+  else { const d = Math.round((a - p) * 10) / 10; box.innerHTML = "Km del viaggio: <b>" + d.toLocaleString("it-IT") + "</b>" + (d > 900 ? " <span style='color:#dc2626;font-weight:700'>⚠️ sembrano troppi</span>" : ""); }
+  const t = Number($("mv-ton-" + id).value);
+  $("mv-tonhint-" + id).innerHTML = t > 60
+    ? "<span style='color:#dc2626;font-weight:700'>⚠️ " + t.toLocaleString("it-IT") + " sembrano kg: in tonnellate sono " + (t / 1000).toLocaleString("it-IT") + "</span>"
+    : "In tonnellate (es. 27,4), non in kg.";
+}
+
+function segnaMV(id) {
+  aggiornaKmMV(id);
+  const n = Object.keys(cambiMV(id).dopo).length;
+  const b = $("mv-salva-" + id);
+  b.disabled = !n; b.style.opacity = n ? "1" : ".45";
+  b.textContent = n ? "💾 Salva " + n + (n === 1 ? " modifica" : " modifiche") : "Nessuna modifica";
+}
+
+async function salvaViaggioMV(id) {
+  const chi = $("mv-chi").value.trim();
+  if (!chi) { msg("mv-msg", "Scrivi il tuo nome in \"Chi modifica\" in alto.", "err"); mostra("mv-msg"); window.scrollTo(0, 0); $("mv-chi").focus(); return; }
+  mvSalvaChi(chi);
+  const c = cambiMV(id);
+  const b = $("mv-salva-" + id);
+  b.disabled = true; b.textContent = "Salvataggio…";
+  try {
+    const r = await api("salvaViaggio", { id: id, chi: chi, prima: c.prima, dopo: c.dopo });
+    if (r.viaggio) { const i = MV.findIndex(x => x.id === id); if (i >= 0) MV[i] = r.viaggio; }
+    MV_APERTO = null;
+    disegnaMV();
+    msg("mv-msg", r.msg, "ok"); mostra("mv-msg");
+    const card = $("mvc-" + id); if (card) card.scrollIntoView({ block: "center" });
+    setTimeout(() => nascondi("mv-msg"), 4000);
+  } catch (e) {
+    b.disabled = false; segnaMV(id);
+    msg("mv-msg", e.message, "err"); mostra("mv-msg"); window.scrollTo(0, 0);
+  }
 }
 
 // ---------- rifornimento ----------

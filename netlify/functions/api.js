@@ -923,6 +923,184 @@ async function azIgnoraControllo(req) {
   return { msg: "Segnalazione ignorata." };
 }
 
+// ============================================================
+//  MODIFICA VIAGGI (ufficio): cerca e corregge i viaggi, anche chiusi.
+//  Si scrive solo nelle colonne "a mano" (A..V e AB): le colonne
+//  con le formule (W, X, Y, Z, AA, AC, AD) non vengono mai toccate.
+// ============================================================
+
+// campo -> colonna e tipo
+const CAMPI_VIAGGIO = {
+  data:      { col: "B", i: 1,  tipo: "data",  nome: "Data" },
+  autista:   { col: "C", i: 2,  tipo: "testo", nome: "Autista" },
+  targa:     { col: "E", i: 4,  tipo: "testo", nome: "Camion" },
+  kmP:       { col: "F", i: 5,  tipo: "num",   nome: "KM partenza" },
+  kmA:       { col: "G", i: 6,  tipo: "num",   nome: "KM arrivo" },
+  rimorchio: { col: "K", i: 10, tipo: "testo", nome: "Rimorchio" },
+  ton:       { col: "L", i: 11, tipo: "num",   nome: "Tonnellate" },
+  ore:       { col: "M", i: 12, tipo: "num",   nome: "Ore di lavoro" },
+  stato:     { col: "P", i: 15, tipo: "testo", nome: "Stato" },
+  oraFine:   { col: "Q", i: 16, tipo: "ora",   nome: "Ora fine" },
+  nota:      { col: "R", i: 17, tipo: "testo", nome: "Nota ufficio" },
+  tratta:    { col: "S", i: 18, tipo: "testo", nome: "Tratta" },
+  oraInizio: { col: "T", i: 19, tipo: "ora",   nome: "Ora inizio" },
+  nViaggi:   { col: "U", i: 20, tipo: "num",   nome: "Numero viaggi" },
+  notaAut:   { col: "V", i: 21, tipo: "testo", nome: "Nota autista" },
+  ricMan:    { col: "AB", i: 27, tipo: "num",  nome: "Ricavo manuale" }
+};
+const STATI_VIAGGIO = ["Assegnato", "In Corso", "Completato"];
+
+// valore della cella -> valore "pulito" per il confronto e per l'app
+function valoreCampo(def, v) {
+  if (def.tipo === "data") { const s = serialC(v); return s == null ? "" : serialToISO(Math.floor(s)); }
+  if (def.tipo === "num") { const n = numC(v); return n == null ? "" : n; }
+  if (def.tipo === "ora") {
+    if (typeof v === "number") { const m = Math.round(v * 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); }
+    return String(v == null ? "" : v).trim();
+  }
+  return String(v == null ? "" : v).trim();
+}
+
+function viaggioDaRiga(r, riga, b) {
+  const v = { id: String(r[0] || ""), riga: riga };
+  Object.keys(CAMPI_VIAGGIO).forEach(k => { v[k] = valoreCampo(CAMPI_VIAGGIO[k], r[CAMPI_VIAGGIO[k].i]); });
+  v.km = numC(r[7]);
+  v.partenza = String(r[8] || "");
+  v.arrivo = String(r[9] || "");
+  v.foto = String(r[13] || "").split(/\s+/).filter(x => /^https?:/.test(x));
+  v.ricavoTariffa = numC(r[25]);
+  v.ricavoTotale = numC(r[29]);
+  v.tipo = String(r[26] || "");
+  v.categoria = String(r[28] || "");
+  v.nomeCamion = b.mezzi[v.targa] || v.targa;
+  return v;
+}
+
+async function leggiRegistroCompleto() {
+  return leggi("REGISTRO_VIAGGI!A2:AD" + (FINESTRA_MAX + 1));
+}
+
+async function azCercaViaggi(req) {
+  const b = await base();
+  const righe = await leggiRegistroCompleto();
+  const oggi = oggiSerialRoma();
+  const dal = req.dal ? Math.floor(dataSerial(req.dal)) : oggi - 1;
+  const al = req.al ? Math.floor(dataSerial(req.al)) : oggi;
+  const testo = String(req.testo || "").trim().toLowerCase();
+
+  const out = [];
+  righe.forEach((r, i) => {
+    if (!r[0]) return;
+    const s = serialC(r[1]);
+    if (s == null) return;
+    const g = Math.floor(s);
+    if (g < dal || g > al) return;
+    if (req.targa && String(r[4] || "").trim() !== req.targa) return;
+    if (req.autista && String(r[2] || "").trim() !== req.autista) return;
+    if (req.stato && String(r[15] || "").trim() !== req.stato) return;
+    if (testo && [r[2], r[4], r[18], r[8], r[9], r[17], r[21]].join(" ").toLowerCase().indexOf(testo) < 0) return;
+    out.push(viaggioDaRiga(r, i + 2, b));
+  });
+  out.sort((x, y) => (x.data < y.data ? 1 : x.data > y.data ? -1 : y.riga - x.riga));
+  return { viaggi: out.slice(0, 300), troppi: out.length > 300, totale: out.length };
+}
+
+async function azSalvaViaggio(req) {
+  const b = await base();
+  const chi = String(req.chi || "").trim();
+  if (!chi) throw new Error("Scrivi il tuo nome in \"Chi modifica\".");
+  const dopo = req.dopo || {}, prima = req.prima || {};
+  const campi = Object.keys(dopo).filter(k => CAMPI_VIAGGIO[k]);
+  if (!campi.length) return { msg: "Nessuna modifica da salvare." };
+
+  // trovo la riga per ID su tutto il registro (le righe possono spostarsi)
+  const righe = await leggiRegistroCompleto();
+  let idx = -1;
+  for (let i = righe.length - 1; i >= 0; i--) if (String(righe[i][0]) === String(req.id)) { idx = i; break; }
+  if (idx < 0) throw new Error("Viaggio non trovato: forse è stato eliminato. Ricarica l'elenco.");
+  const r = righe[idx], riga = idx + 2;
+
+  // qualcun altro lo ha cambiato nel frattempo?
+  const cambiati = campi.filter(k => String(valoreCampo(CAMPI_VIAGGIO[k], r[CAMPI_VIAGGIO[k].i])) !== String(prima[k] == null ? "" : prima[k]));
+  if (cambiati.length) {
+    throw new Error("Nel frattempo qualcuno ha cambiato " + cambiati.map(k => CAMPI_VIAGGIO[k].nome).join(", ") +
+      " di questo viaggio. Riapri il viaggio e rifai la modifica.");
+  }
+
+  // controlli sui valori nuovi
+  const err = [];
+  const nuovo = {};
+  campi.forEach(k => {
+    const def = CAMPI_VIAGGIO[k];
+    let v = dopo[k];
+    if (def.tipo === "num") {
+      if (v === "" || v == null) { nuovo[k] = ""; return; }
+      v = numC(v);
+      if (v == null || v < 0) { err.push(def.nome + ": numero non valido"); return; }
+    } else if (def.tipo === "data") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v))) { err.push("Data non valida"); return; }
+    } else if (def.tipo === "ora") {
+      v = String(v || "").trim();
+      if (v && !/^\d{1,2}:\d{2}$/.test(v)) { err.push(def.nome + ": scrivi l'ora come 06:30"); return; }
+    } else {
+      v = String(v == null ? "" : v).trim();
+    }
+    nuovo[k] = v;
+  });
+  if ("autista" in nuovo && b.autisti.indexOf(nuovo.autista) < 0) err.push("Autista non presente nell'elenco AUTISTI");
+  if ("targa" in nuovo && !b.mezzi[nuovo.targa]) err.push("Camion non presente in ANAGRAFICA_MEZZI");
+  if ("rimorchio" in nuovo && nuovo.rimorchio && !b.rimorchi[nuovo.rimorchio]) err.push("Rimorchio non presente in ANAGRAFICA_RIMORCHI");
+  if ("stato" in nuovo && STATI_VIAGGIO.indexOf(nuovo.stato) < 0) err.push("Stato non valido");
+  let regola = null;
+  if ("tratta" in nuovo) {
+    regola = b.regole.find(x => x.chiave === nuovo.tratta);
+    if (!regola) err.push("Tratta non presente in REGOLE_VIAGGI");
+  }
+  const kmP = "kmP" in nuovo ? nuovo.kmP : numC(r[5]);
+  const kmA = "kmA" in nuovo ? nuovo.kmA : numC(r[6]);
+  if (kmP !== "" && kmA !== "" && kmP != null && kmA != null && kmA < kmP) err.push("I KM di arrivo sono più bassi dei KM di partenza");
+  if (err.length) throw new Error(err.join(". ") + ".");
+
+  // scritture (RAW: niente conversioni strane di testi, date e numeri)
+  const dati = [];
+  const metti = (col, val) => dati.push({ range: "REGISTRO_VIAGGI!" + col + riga, values: [[val]] });
+  campi.forEach(k => {
+    const def = CAMPI_VIAGGIO[k];
+    let val = nuovo[k];
+    if (def.tipo === "data") val = Math.floor(dataSerial(val));
+    metti(def.col, val);
+  });
+  if ("kmP" in nuovo || "kmA" in nuovo) {
+    metti("H", (kmP !== "" && kmA !== "" && kmP != null && kmA != null && kmP > 0) ? Math.round((kmA - kmP) * 10) / 10 : "");
+  }
+  if (regola) {
+    metti("J", regola.arrivo || String(r[9] || ""));
+    if (regola.partenza) metti("I", regola.partenza);
+  }
+  await sheets().spreadsheets.values.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: { valueInputOption: "RAW", data: dati }
+  });
+
+  // registro delle modifiche (se il foglio non c'e', la modifica resta valida)
+  const quando = serialToData(oggiSerialRoma()) + " " + oraLocale();
+  const dataV = valoreCampo(CAMPI_VIAGGIO.data, r[1]);
+  try {
+    await sheets().spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: "MODIFICHE_VIAGGI!A1:I1",
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: campi.map(k => [quando, chi, String(req.id), riga, dataV.split("-").reverse().join("/"),
+        String(r[2] || ""), CAMPI_VIAGGIO[k].nome, String(prima[k] == null ? "" : prima[k]), String(nuovo[k])]) }
+    });
+  } catch (e) {}
+
+  svuotaCoda();
+  const aggiornato = (await leggi("REGISTRO_VIAGGI!A" + riga + ":AD" + riga))[0] || [];
+  return { msg: "Viaggio aggiornato (" + campi.length + (campi.length === 1 ? " campo)." : " campi)."), viaggio: viaggioDaRiga(aggiornato, riga, b) };
+}
+
 // Le ore possono arrivare come "4:30", "4,5" o numero: le riporto a decimale
 function parseOre(v) {
   if (v == null || v === "") return 0;
@@ -979,6 +1157,8 @@ exports.handler = async function (event) {
       case "controlli":     dati = await azControlli(req); break;
       case "ignoraControllo": dati = await azIgnoraControllo(req); break;
       case "giornata":      dati = await azGiornata(req); break;
+      case "cercaViaggi":   dati = await azCercaViaggi(req); break;
+      case "salvaViaggio":  dati = await azSalvaViaggio(req); break;
       default: return rispondi({ ok: false, msg: "Azione sconosciuta: " + req.azione });
     }
     return rispondi({ ok: true, dati });
