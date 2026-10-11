@@ -896,6 +896,15 @@ async function termina(id) {
   msg("msg-aut", "Salvataggio in corso…", "attesa"); mostra("msg-aut");
   const copia = VIAGGI.map(x => Object.assign({}, x));
 
+  // I km di arrivo di questo viaggio diventano subito i km di partenza
+  // dei prossimi viaggi sullo stesso camion (prima restavano quelli della sera prima)
+  const chiuso = VIAGGI.find(x => x.id === id);
+  if (chiuso) {
+    VIAGGI.forEach(x => {
+      if (x.id !== id && x.stato === "Assegnato" && x.targaMezzo === chiuso.targaMezzo) x.kmPrecedente = kmArr;
+    });
+  }
+
   mostraViaggi(VIAGGI.filter(x => x.id !== id));   // la card sparisce subito
 
   try {
