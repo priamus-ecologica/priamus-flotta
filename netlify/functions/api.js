@@ -876,6 +876,41 @@ async function azControlli(req) {
   return ris;
 }
 
+// Camion al lavoro e camion fermi in una giornata (data "AAAA-MM-GG", vuota = oggi)
+async function azGiornata(req) {
+  const b = await base();
+  const c = await coda(true);
+  const giorno = req.data ? Math.floor(dataSerial(req.data)) : oggiSerialRoma();
+
+  const lavoro = {}, ultimo = {};
+  c.righe.forEach(r => {
+    const targa = String(r[4] || "").trim();
+    const s = serialC(r[1]);
+    if (!targa || s == null) return;
+    const g = Math.floor(s);
+    if (g < giorno && (!ultimo[targa] || g > ultimo[targa])) ultimo[targa] = g;
+    if (g !== giorno) return;
+    (lavoro[targa] = lavoro[targa] || []).push({
+      autista: String(r[2] || ""),
+      tratta: String(r[18] || "") || (String(r[8] || "") + " ➔ " + String(r[9] || "")),
+      stato: String(r[15] || "").trim(),
+      rimorchio: etich(b.rimorchi, r[10]),
+      ora: typeof r[19] === "number" ? Math.round(r[19] * 1440) : String(r[19] || "")
+    });
+  });
+
+  const nomeDi = t => b.mezzi[t] || t;
+  const alLavoro = Object.keys(lavoro).map(t => ({ targa: t, nome: nomeDi(t), viaggi: lavoro[t] }))
+    .sort((x, y) => x.nome.localeCompare(y.nome));
+  const fermi = Object.keys(b.mezzi).filter(t => !lavoro[t]).map(t => ({
+    targa: t, nome: nomeDi(t),
+    ultimo: ultimo[t] ? serialToData(ultimo[t]) : "",
+    giorni: ultimo[t] ? giorno - ultimo[t] : null
+  })).sort((x, y) => (y.giorni == null ? 9999 : y.giorni) - (x.giorni == null ? 9999 : x.giorni));
+
+  return { data: serialToISO(giorno), alLavoro: alLavoro, fermi: fermi, totaleCamion: Object.keys(b.mezzi).length };
+}
+
 async function azIgnoraControllo(req) {
   if (!req.chiave) throw new Error("Segnalazione mancante.");
   await sheets().spreadsheets.values.append({
@@ -943,6 +978,7 @@ exports.handler = async function (event) {
       case "modifica":      dati = await azModifica(req); break;
       case "controlli":     dati = await azControlli(req); break;
       case "ignoraControllo": dati = await azIgnoraControllo(req); break;
+      case "giornata":      dati = await azGiornata(req); break;
       default: return rispondi({ ok: false, msg: "Azione sconosciuta: " + req.azione });
     }
     return rispondi({ ok: true, dati });

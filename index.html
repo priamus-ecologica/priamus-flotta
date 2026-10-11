@@ -155,11 +155,29 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
   </div>
 
   <div id="p-res" class="hidden">
-    <p class="sub">Errori e dati sospetti in viaggi e rifornimenti</p>
-    <div id="ctrl-periodi" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"></div>
-    <div id="ctrl-msg" class="msg hidden"></div>
-    <div id="ctrl-kpi"></div>
-    <div id="ctrl-lista"></div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button id="vc-giorno" class="btn" style="flex:1;padding:10px;font-size:12px;margin-top:0" onclick="vistaControlli('giorno')">🚚 Camion del giorno</button>
+      <button id="vc-anom" class="btn ghost" style="flex:1;padding:10px;font-size:12px;margin-top:0" onclick="vistaControlli('anomalie')">🔎 Anomalie</button>
+    </div>
+
+    <div id="vista-giorno">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <button class="btn ghost" style="width:46px;padding:10px;margin-top:0" onclick="spostaGiorno(-1)">◀</button>
+        <input type="date" id="g-data" style="flex:1;margin:0" onchange="GIORNO_SEL=this.value;caricaGiornata()">
+        <button class="btn ghost" style="width:46px;padding:10px;margin-top:0" onclick="spostaGiorno(1)">▶</button>
+      </div>
+      <div id="g-titolo" style="text-align:center;font-weight:700;color:var(--blue);margin:8px 0 14px;text-transform:capitalize"></div>
+      <div id="g-msg" class="msg hidden"></div>
+      <div id="g-lista"></div>
+    </div>
+
+    <div id="vista-anomalie" class="hidden">
+      <p class="sub" style="margin-top:0">Errori e dati sospetti in viaggi e rifornimenti</p>
+      <div id="ctrl-periodi" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"></div>
+      <div id="ctrl-msg" class="msg hidden"></div>
+      <div id="ctrl-kpi"></div>
+      <div id="ctrl-lista"></div>
+    </div>
   </div>
 
   <button class="btn ghost" style="margin-top:26px;" onclick="esci()">Esci</button>
@@ -451,7 +469,7 @@ function tab(quale) {
     if (FLOTTA && FLOTTA.length) disegnaFlotta(FLOTTA);   // subito il gia' scaricato
     caricaFlotta();                                       // poi aggiorna
   }
-  if (quale === "res") caricaControlli();
+  if (quale === "res") vistaControlli(VISTA_CTRL);
 }
 
 function preview() {
@@ -1049,6 +1067,90 @@ async function ignoraControllo(kEnc) {
     msg("ctrl-msg", e.message, "err"); mostra("ctrl-msg");
     disegnaControlli();
   }
+}
+
+// ---------- Camion del giorno ----------
+let VISTA_CTRL = "giorno";
+let GIORNO_SEL = null;   // "AAAA-MM-GG"
+
+function vistaControlli(v) {
+  VISTA_CTRL = v;
+  $("vc-giorno").className = "btn " + (v === "giorno" ? "" : "ghost");
+  $("vc-anom").className = "btn " + (v === "anomalie" ? "" : "ghost");
+  $("vista-giorno").classList.toggle("hidden", v !== "giorno");
+  $("vista-anomalie").classList.toggle("hidden", v !== "anomalie");
+  if (v === "giorno") caricaGiornata();
+  else caricaControlli();
+}
+
+function spostaGiorno(delta) {
+  const d = new Date((GIORNO_SEL || isoLocale(new Date())) + "T12:00:00");
+  d.setDate(d.getDate() + delta);
+  GIORNO_SEL = isoLocale(d);
+  caricaGiornata();
+}
+
+function oraTesto(o) {
+  if (typeof o === "number") return String(Math.floor(o / 60)).padStart(2, "0") + ":" + String(o % 60).padStart(2, "0");
+  return o || "";
+}
+
+async function caricaGiornata() {
+  if (!GIORNO_SEL) GIORNO_SEL = isoLocale(new Date());
+  $("g-data").value = GIORNO_SEL;
+  const nomiG = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
+  const d = new Date(GIORNO_SEL + "T12:00:00");
+  $("g-titolo").textContent = (GIORNO_SEL === isoLocale(new Date()) ? "Oggi, " : "") + nomiG[d.getDay()] + " " +
+    d.toLocaleDateString("it-IT", { day: "numeric", month: "long" });
+  $("g-lista").innerHTML = "<p style='text-align:center;color:var(--light);padding:18px'>Caricamento…</p>";
+  nascondi("g-msg");
+  try {
+    const g = await api("giornata", { data: GIORNO_SEL });
+    disegnaGiornata(g);
+  } catch (e) {
+    $("g-lista").innerHTML = "";
+    msg("g-msg", e.message, "err"); mostra("g-msg");
+  }
+}
+
+function disegnaGiornata(g) {
+  const coloreStato = { "Completato": ["#dcfce7", "#15803d"], "In Corso": ["#e0f2fe", "#0369a1"], "Assegnato": ["#fff7ed", "#ea580c"] };
+  let html =
+    "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px'>" +
+    "<div style='background:#f0fdf4;border:1px solid var(--border);border-top:4px solid #16a34a;border-radius:10px;padding:10px;text-align:center'>" +
+      "<div style='font-size:22px;font-weight:800;color:#16a34a'>" + g.alLavoro.length + "</div><div style='font-size:11px;color:var(--light)'>Al lavoro</div></div>" +
+    "<div style='background:#f8fafc;border:1px solid var(--border);border-top:4px solid #64748b;border-radius:10px;padding:10px;text-align:center'>" +
+      "<div style='font-size:22px;font-weight:800;color:#475569'>" + g.fermi.length + "</div><div style='font-size:11px;color:var(--light)'>Fermi</div></div>" +
+    "</div>";
+
+  html += "<div style='font-size:12px;font-weight:700;color:var(--light);text-transform:uppercase;letter-spacing:.5px;margin:6px 0 8px'>🚚 Al lavoro (" + g.alLavoro.length + ")</div>";
+  if (!g.alLavoro.length) html += "<div class='hint' style='margin-bottom:10px'>Nessun camion assegnato in questa giornata.</div>";
+  html += g.alLavoro.map(c =>
+    "<div style='background:#fff;border:1px solid var(--border);border-left:5px solid #16a34a;border-radius:10px;padding:11px;margin-bottom:8px'>" +
+      "<div style='font-size:13px;font-weight:700;color:var(--blue)'>" + escH(c.nome) + " <span style='font-weight:500;color:var(--light);font-size:11px'>" + escH(c.targa) + "</span></div>" +
+      c.viaggi.map(v => {
+        const col = coloreStato[v.stato] || ["#f1f5f9", "#475569"];
+        return "<div style='display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px'>" +
+          "<div style='flex:1;min-width:0'><b>" + escH(v.tratta) + "</b><div style='color:var(--light);font-size:11.5px'>" + escH(v.autista) +
+            (oraTesto(v.ora) ? " · " + escH(oraTesto(v.ora)) : "") + (v.rimorchio && v.rimorchio !== "—" ? " · " + escH(v.rimorchio) : "") + "</div></div>" +
+          "<span style='background:" + col[0] + ";color:" + col[1] + ";border-radius:6px;padding:3px 7px;font-size:10px;font-weight:700;white-space:nowrap'>" +
+            escH(v.stato || "—") + "</span></div>";
+      }).join("") +
+    "</div>").join("");
+
+  html += "<div style='font-size:12px;font-weight:700;color:var(--light);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px'>⏸️ Fermi (" + g.fermi.length + ")</div>";
+  if (!g.fermi.length) html += "<div class='hint'>Tutti i camion lavorano in questa giornata.</div>";
+  html += g.fermi.map(c => {
+    const da = c.giorni == null ? "nessun viaggio recente" :
+      (c.giorni === 1 ? "ultimo viaggio il giorno prima" : "fermo da " + c.giorni + " giorni · ultimo viaggio " + c.ultimo);
+    const lungo = c.giorni == null || c.giorni >= 3;
+    return "<div style='display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--border);border-left:5px solid " +
+      (lungo ? "#f59e0b" : "#cbd5e1") + ";border-radius:10px;padding:10px;margin-bottom:6px'>" +
+      "<div style='flex:1;min-width:0'><div style='font-size:13px;font-weight:700;color:var(--blue)'>" + escH(c.nome) +
+        " <span style='font-weight:500;color:var(--light);font-size:11px'>" + escH(c.targa) + "</span></div>" +
+      "<div style='font-size:11.5px;color:" + (lungo ? "#b45309" : "var(--light)") + "'>" + escH(da) + "</div></div></div>";
+  }).join("");
+  $("g-lista").innerHTML = html;
 }
 
 // ---------- rifornimento ----------
