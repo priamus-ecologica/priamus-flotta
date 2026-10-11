@@ -121,7 +121,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
   <div class="tabs">
     <button class="tab on" id="t-ass" onclick="tab('ass')">📝 Assegna</button>
     <button class="tab" id="t-dash" onclick="tab('dash')">📊 Dashboard</button>
-    <button class="tab" id="t-res" onclick="tab('res')">⛽ Resoconti</button>
+    <button class="tab" id="t-res" onclick="tab('res')">🔎 Controlli</button>
   </div>
 
   <div id="p-ass">
@@ -155,14 +155,11 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
   </div>
 
   <div id="p-res" class="hidden">
-    <div class="grp">
-      <label>Mese</label>
-      <select id="r-mese" onchange="caricaResoconti()"></select>
-    </div>
-    <div id="res-kpi"></div>
-    <div id="res-lista"></div>
-    <div id="res-dett"></div>
-    <div id="res-msg" class="msg hidden"></div>
+    <p class="sub">Errori e dati sospetti in viaggi e rifornimenti</p>
+    <div id="ctrl-periodi" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"></div>
+    <div id="ctrl-msg" class="msg hidden"></div>
+    <div id="ctrl-kpi"></div>
+    <div id="ctrl-lista"></div>
   </div>
 
   <button class="btn ghost" style="margin-top:26px;" onclick="esci()">Esci</button>
@@ -454,7 +451,7 @@ function tab(quale) {
     if (FLOTTA && FLOTTA.length) disegnaFlotta(FLOTTA);   // subito il gia' scaricato
     caricaFlotta();                                       // poi aggiorna
   }
-  if (quale === "res") caricaResoconti();
+  if (quale === "res") caricaControlli();
 }
 
 function preview() {
@@ -936,209 +933,121 @@ async function inviaFoto(id, foto) {
 
 
 // ============================================================
-//  RESOCONTI  (solo admin)
+//  CONTROLLI  (solo admin): errori e dati sospetti
 // ============================================================
-let RES = null;
-let RES_ORD = "km";
-let RES_SCELTO = null;
+let CTRL = null;
+let CTRL_PERIODO = "7";
+let CTRL_CONF = null;   // chiave della segnalazione in attesa di conferma "Ignora"
 
-function nFmt(v, d) {
-  if (v == null || v === "") return "—";
-  return Number(v).toLocaleString("it-IT", { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
+function escH(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function nomeMese(m) {
-  const nomi = ["gennaio","febbraio","marzo","aprile","maggio","giugno",
-                "luglio","agosto","settembre","ottobre","novembre","dicembre"];
-  const p = String(m).split("-");
-  if (p.length !== 2) return m;
-  return nomi[Number(p[1]) - 1] + " " + p[0];
+function isoLocale(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 
-async function caricaResoconti() {
-  const sel = $("r-mese");
-  const meseScelto = sel.value || null;
-  $("res-kpi").innerHTML = "<p style='text-align:center;color:var(--light);padding:18px'>Caricamento…</p>";
-  $("res-lista").innerHTML = "";
-  $("res-dett").innerHTML = "";
-  nascondi("res-msg");
+function periodoControlli(p) {
+  const oggi = new Date();
+  if (p === "7")  { const d = new Date(oggi); d.setDate(d.getDate() - 6); return { dal: isoLocale(d), al: isoLocale(oggi) }; }
+  if (p === "30") { const d = new Date(oggi); d.setDate(d.getDate() - 29); return { dal: isoLocale(d), al: isoLocale(oggi) }; }
+  if (p === "mese") return { dal: isoLocale(new Date(oggi.getFullYear(), oggi.getMonth(), 1)), al: isoLocale(oggi) };
+  if (p === "prec") return { dal: isoLocale(new Date(oggi.getFullYear(), oggi.getMonth() - 1, 1)),
+                             al: isoLocale(new Date(oggi.getFullYear(), oggi.getMonth(), 0)) };
+  return { dal: "", al: "" };
+}
 
+async function caricaControlli(p) {
+  if (p) CTRL_PERIODO = p;
+  CTRL_CONF = null;
+  disegnaPeriodi();
+  $("ctrl-kpi").innerHTML = "<p style='text-align:center;color:var(--light);padding:18px'>Controllo in corso…</p>";
+  $("ctrl-lista").innerHTML = "";
+  nascondi("ctrl-msg");
   try {
-    RES = await api("resoconti", { mese: meseScelto });
-
-    // elenco mesi, solo la prima volta o se cambia
-    if (sel.options.length !== RES.mesi.length) {
-      sel.innerHTML = RES.mesi.map(m =>
-        "<option value='" + m + "'" + (m === RES.mese ? " selected" : "") + ">" + nomeMese(m) + "</option>"
-      ).join("");
-    }
-    sel.value = RES.mese;
-
-    RES_SCELTO = null;
-    disegnaResoconti();
+    CTRL = await api("controlli", periodoControlli(CTRL_PERIODO));
+    disegnaControlli();
   } catch (e) {
-    $("res-kpi").innerHTML = "";
-    msg("res-msg", e.message, "err"); mostra("res-msg");
+    $("ctrl-kpi").innerHTML = "";
+    msg("ctrl-msg", e.message, "err"); mostra("ctrl-msg");
   }
 }
 
-function disegnaResoconti() {
-  if (!RES) return;
-  const t = RES.totali;
+function disegnaPeriodi() {
+  $("ctrl-periodi").innerHTML = [["7", "7 giorni"], ["30", "30 giorni"], ["mese", "Questo mese"], ["prec", "Mese scorso"]]
+    .map(o => "<button class='btn " + (CTRL_PERIODO === o[0] ? "" : "ghost") +
+      "' style='flex:1;min-width:74px;padding:8px;font-size:11px;margin-top:0' onclick=\"caricaControlli('" + o[0] + "')\">" +
+      o[1] + "</button>").join("");
+}
 
-  $("res-kpi").innerHTML =
-    "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:18px'>" +
-    [["Spesa gasolio", t.spesa ? nFmt(t.spesa, 0) + " €" : "—"],
-     ["Litri", t.litri ? nFmt(t.litri, 0) : "—"],
-     ["Km percorsi", nFmt(t.km, 0)],
-     ["Consumo medio", t.consumo != null ? nFmt(t.consumo, 1) + " L" : "—"],
-     ["Costo al km", t.euroKm != null ? nFmt(t.euroKm, 2) + " €" : "—"],
-     ["Viaggi", nFmt(t.viaggi, 0)]]
-    .map(x =>
-      "<div style='background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:12px'>" +
-      "<div style='font-size:11px;color:var(--light);text-transform:uppercase;letter-spacing:.4px'>" + x[0] + "</div>" +
-      "<div style='font-size:19px;font-weight:700;color:var(--blue);margin-top:3px'>" + x[1] + "</div></div>"
-    ).join("") + "</div>";
+const CTRL_COL = { alta: ["#dc2626", "#fef2f2", "Da correggere"], media: ["#f59e0b", "#fffbeb", "Da verificare"], bassa: ["#64748b", "#f8fafc", "Piccole cose"] };
 
-  const camion = RES.camion.slice().sort((a, b) => {
-    if (RES_ORD === "consumo") return (b.consumo || 0) - (a.consumo || 0);
-    return (b[RES_ORD] || 0) - (a[RES_ORD] || 0);
-  });
+function disegnaControlli() {
+  if (!CTRL) return;
+  const c = CTRL.conteggi;
+  const tot = c.alta + c.media + c.bassa;
 
-  if (!camion.length) {
-    $("res-lista").innerHTML = "<div class='viaggio' style='text-align:center;color:var(--light)'>Nessun dato per questo mese.</div>";
-    $("res-dett").innerHTML = "";
+  $("ctrl-kpi").innerHTML =
+    "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:6px'>" +
+    ["alta", "media", "bassa"].map(g =>
+      "<div style='background:" + CTRL_COL[g][1] + ";border:1px solid var(--border);border-top:4px solid " + CTRL_COL[g][0] +
+      ";border-radius:10px;padding:10px;text-align:center'>" +
+      "<div style='font-size:22px;font-weight:800;color:" + CTRL_COL[g][0] + "'>" + c[g] + "</div>" +
+      "<div style='font-size:11px;color:var(--light)'>" + CTRL_COL[g][2] + "</div></div>").join("") +
+    "</div>" +
+    "<div class='hint' style='text-align:center;margin-bottom:14px'>Periodo " + CTRL.dal.split("-").reverse().join("/") +
+    " – " + CTRL.al.split("-").reverse().join("/") +
+    (CTRL.ignorati ? " · " + CTRL.ignorati + (CTRL.ignorati === 1 ? " segnalazione ignorata" : " segnalazioni ignorate") : "") + "</div>";
+
+  if (!tot) {
+    $("ctrl-lista").innerHTML = "<div class='viaggio' style='text-align:center;border-left-color:#10b981'>✅ Nessun problema trovato in questo periodo.</div>";
     return;
   }
 
-  const media = RES.totali.consumo;
-  const maxC = Math.max.apply(null, camion.map(c => c.consumo || 0)) || 1;
-  const senzaRif = camion.filter(c => c.km > 0 && !c.litri).length;
-
-  let html =
-    "<div style='display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap'>" +
-    [["km", "Km"], ["consumo", "Consumo"], ["spesa", "Spesa"], ["viaggi", "Viaggi"]]
-      .map(o => "<button class='btn " + (RES_ORD === o[0] ? "" : "ghost") + "' style='flex:1;min-width:74px;padding:8px;font-size:11px;margin-top:0' " +
-                "onclick=\"RES_ORD='" + o[0] + "';disegnaResoconti()\">" + o[1] + "</button>").join("") +
-    "</div>";
-
-  html += camion.map(c => {
-    const largh = c.consumo ? Math.max(6, c.consumo / maxC * 100) : 0;
-    let col = "#94a3b8";
-    if (c.consumo != null && media) {
-      col = c.consumo > media * 1.05 ? "#dc2626" : (c.consumo < media * 0.95 ? "#10b981" : "#f59e0b");
-    }
-    const sel = RES_SCELTO === c.targa;
-    return "<div onclick=\"RES_SCELTO='" + c.targa + "';disegnaResoconti()\" " +
-      "style='display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;cursor:pointer;margin-bottom:4px;" +
-      "border:1px solid " + (sel ? "var(--orange)" : "transparent") + ";background:" + (sel ? "#fff7ed" : "transparent") + "'>" +
-      "<div style='flex:1;min-width:0'>" +
-        "<div style='font-size:13px;font-weight:600;color:var(--blue)'>" + c.nome + "</div>" +
-        "<div style='font-size:11px;color:var(--light)'>" + c.targa + " · " + nFmt(c.km, 0) + " km · " + c.viaggi + " viaggi</div>" +
-      "</div>" +
-      "<div style='width:70px;height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden'>" +
-        "<div style='width:" + largh + "%;height:100%;background:" + col + "'></div></div>" +
-      "<div style='width:58px;text-align:right'>" +
-        "<div style='font-size:13px;font-weight:700;color:" + col + "'>" + (c.consumo != null ? nFmt(c.consumo, 1) : "—") + "</div>" +
-        "<div style='font-size:9px;color:var(--light)'>L/100km</div></div>" +
-    "</div>";
-  }).join("");
-
-  if (senzaRif) {
-    html += "<div class='nota' style='margin-top:10px'>⚠️ " + senzaRif +
-            (senzaRif === 1 ? " camion ha" : " camion hanno") +
-            " percorso km senza rifornimenti registrati: per loro il consumo non è calcolabile.</div>";
-  }
-
-  html += "<button class='btn' style='margin-top:14px' onclick='esportaResoconti()'>📊 Scarica in Excel</button>";
-  $("res-lista").innerHTML = html;
-
-  // dettaglio del camion selezionato
-  const c = camion.find(x => x.targa === RES_SCELTO);
-  if (!c) { $("res-dett").innerHTML = ""; return; }
-
-  const scarto = (c.consumo != null && media) ? ((c.consumo - media) / media * 100) : null;
-  const serie = (RES.andamento && RES.andamento[c.targa]) || [];
-  const conDati = serie.filter(x => x.consumo != null);
-
-  let dett = "<div style='background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:16px'>" +
-    "<div style='font-size:15px;font-weight:700;color:var(--blue)'>" + c.nome + "</div>" +
-    "<div style='font-size:11px;color:var(--light);margin-bottom:12px'>" + c.targa + "</div>" +
-    "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:12px'>" +
-    [["Km", nFmt(c.km, 0)], ["Viaggi", nFmt(c.viaggi, 0)], ["Rotazioni", nFmt(c.rotazioni, 0)],
-     ["Tonnellate", nFmt(c.tonnellate, 1)], ["Ore", nFmt(c.ore, 1)],
-     ["Litri", c.litri ? nFmt(c.litri, 1) : "—"],
-     ["Spesa", c.spesa ? nFmt(c.spesa, 2) + " €" : "—"],
-     ["€/km", c.euroKm != null ? nFmt(c.euroKm, 2) : "—"],
-     ["vs media", scarto != null ? (scarto >= 0 ? "+" : "−") + nFmt(Math.abs(scarto), 1) + "%" : "—"]]
-    .map(x => "<div><div style='font-size:11px;color:var(--light)'>" + x[0] + "</div>" +
-              "<div style='font-size:15px;font-weight:700;color:var(--blue);margin-top:2px'>" + x[1] + "</div></div>").join("") +
-    "</div>";
-
-  if (conDati.length > 1) {
-    const vals = conDati.map(x => x.consumo);
-    const mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
-    const scala = (mx - mn) || 1;
-    dett += "<div style='margin-top:16px'>" +
-      "<div style='font-size:11px;color:var(--light);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px'>Consumo mese per mese</div>" +
-      "<div style='display:flex;align-items:flex-end;gap:6px;height:70px'>" +
-      conDati.map(x => {
-        const h = 20 + (x.consumo - mn) / scala * 50;
-        return "<div style='flex:1;text-align:center'>" +
-          "<div style='font-size:9px;color:var(--blue);font-weight:700;margin-bottom:2px'>" + nFmt(x.consumo, 1) + "</div>" +
-          "<div style='height:" + h + "px;background:var(--blue);border-radius:3px 3px 0 0'></div>" +
-          "<div style='font-size:9px;color:var(--light);margin-top:3px'>" + x.mese.split("-")[1] + "</div></div>";
-      }).join("") + "</div></div>";
-  }
-
-  dett += "</div>";
-  $("res-dett").innerHTML = dett;
-}
-
-// ---------- esportazione in Excel ----------
-function caricaXLSX() {
-  return new Promise((ris, rif) => {
-    if (window.XLSX) { ris(); return; }
-    const t = document.createElement("script");
-    t.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-    t.onload = () => ris();
-    t.onerror = () => rif(new Error("Non riesco a caricare il modulo Excel (serve connessione)."));
-    document.head.appendChild(t);
+  const gruppi = ["Viaggi", "Rifornimenti", "Camion"];
+  let html = "";
+  gruppi.forEach(gr => {
+    const l = CTRL.segnalazioni.filter(s => s.gruppo === gr);
+    if (!l.length) return;
+    html += "<div style='font-size:12px;font-weight:700;color:var(--light);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px'>" +
+      gr + " (" + l.length + ")</div>";
+    html += l.map(s => {
+      const col = CTRL_COL[s.gravita];
+      const conf = CTRL_CONF === s.chiave;
+      const k = encodeURIComponent(s.chiave);
+      return "<div style='background:#fff;border:1px solid var(--border);border-left:5px solid " + col[0] +
+        ";border-radius:10px;padding:12px;margin-bottom:10px'>" +
+        "<div style='font-size:13px;font-weight:700;color:var(--blue)'>" + escH(s.titolo) + "</div>" +
+        "<div style='font-size:12.5px;color:#334155;margin-top:4px;line-height:1.45'>" + escH(s.dettaglio) + "</div>" +
+        "<div style='display:flex;align-items:center;gap:8px;margin-top:8px'>" +
+          "<div style='flex:1;font-size:11px;color:var(--light)'>" + escH(s.foglio) + (s.riga ? " · riga " + s.riga : "") + "</div>" +
+          "<button onclick=\"ignoraControllo('" + k + "')\" style='border:1px solid " + (conf ? "#dc2626" : "var(--border)") +
+            ";background:" + (conf ? "#dc2626" : "#fff") + ";color:" + (conf ? "#fff" : "var(--light)") +
+            ";border-radius:7px;padding:6px 10px;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer'>" +
+            (conf ? "Sicuro? Tocca di nuovo" : "È corretto, ignora") + "</button>" +
+        "</div></div>";
+    }).join("");
   });
+  html += "<div class='hint' style='margin-top:12px'>Correggi i dati direttamente nel foglio alla riga indicata, poi riapri questa pagina. " +
+    "\"Ignora\" serve per le cose giuste che sembrano errori: non verranno più mostrate.</div>";
+  $("ctrl-lista").innerHTML = html;
 }
 
-async function esportaResoconti() {
-  if (!RES) return;
-  msg("res-msg", "Preparazione del file…", "attesa"); mostra("res-msg");
+async function ignoraControllo(kEnc) {
+  const chiave = decodeURIComponent(kEnc);
+  if (CTRL_CONF !== chiave) { CTRL_CONF = chiave; disegnaControlli(); return; }
+  const s = CTRL.segnalazioni.find(x => x.chiave === chiave);
+  CTRL_CONF = null;
   try {
-    await caricaXLSX();
-
-    const righe = RES.camion.map(c => ({
-      "Camion": c.nome, "Targa": c.targa, "Viaggi": c.viaggi, "Rotazioni": c.rotazioni,
-      "Km percorsi": c.km, "Tonnellate": c.tonnellate, "Ore lavoro": c.ore,
-      "Litri": c.litri || "", "Spesa (EUR)": c.spesa || "",
-      "Consumo (L/100km)": c.consumo != null ? c.consumo : "",
-      "Costo (EUR/km)": c.euroKm != null ? c.euroKm : ""
-    }));
-    const t = RES.totali;
-    righe.push({
-      "Camion": "TOTALE", "Targa": "", "Viaggi": t.viaggi, "Rotazioni": t.rotazioni,
-      "Km percorsi": t.km, "Tonnellate": t.tonnellate, "Ore lavoro": t.ore,
-      "Litri": t.litri || "", "Spesa (EUR)": t.spesa || "",
-      "Consumo (L/100km)": t.consumo != null ? t.consumo : "",
-      "Costo (EUR/km)": t.euroKm != null ? t.euroKm : ""
-    });
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(righe);
-    ws["!cols"] = [{wch:20},{wch:11},{wch:8},{wch:10},{wch:12},{wch:11},{wch:11},{wch:10},{wch:12},{wch:16},{wch:13}];
-    XLSX.utils.book_append_sheet(wb, ws, "Riepilogo camion");
-    XLSX.writeFile(wb, "resoconti-" + RES.mese + ".xlsx");
-
-    msg("res-msg", "File scaricato.", "ok");
-    setTimeout(() => nascondi("res-msg"), 2500);
+    await api("ignoraControllo", { chiave: chiave, titolo: s ? s.titolo : "" });
+    CTRL.segnalazioni = CTRL.segnalazioni.filter(x => x.chiave !== chiave);
+    if (s) CTRL.conteggi[s.gravita]--;
+    CTRL.ignorati = (CTRL.ignorati || 0) + 1;
+    disegnaControlli();
   } catch (e) {
-    msg("res-msg", e.message, "err");
+    msg("ctrl-msg", e.message, "err"); mostra("ctrl-msg");
+    disegnaControlli();
   }
 }
 

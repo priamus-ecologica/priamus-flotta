@@ -574,112 +574,318 @@ async function azModifica(req) {
 // ============================================================
 //  RESOCONTI: consumi e attivita' per camion, mese per mese
 // ============================================================
-async function azResoconti(req) {
-  const b = await base();
+// ============================================================
+//  CONTROLLI  (solo admin): cerca errori e dati sospetti
+//  nei viaggi e nei rifornimenti del periodo scelto.
+// ============================================================
 
-  const [righeV, righeR] = await Promise.all([
-    leggi("REGISTRO_VIAGGI!A2:V" + (FINESTRA_MAX + 1)),
-    leggi("REGISTRO_RIFORNIMENTI!A2:G5000")
-  ]);
+// Numero da cella del foglio: numero vero, "84020,5", "194500", vuoto
+function numC(v) {
+  if (typeof v === "number") return v;
+  const t = String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".");
+  if (t === "") return null;
+  const n = Number(t);
+  return isNaN(n) ? null : n;
+}
 
-  // elenco dei mesi che hanno almeno un dato
-  const insieme = {};
-  righeV.forEach(r => { const m = serialToMese(r[1]); if (m) insieme[m] = true; });
-  righeR.forEach(r => { const m = serialToMese(r[1]); if (m) insieme[m] = true; });
-  const oggi = new Date();
-  const meseCorrente = oggi.getFullYear() + "-" + String(oggi.getMonth() + 1).padStart(2, "0");
-  insieme[meseCorrente] = true;
-  const mesi = Object.keys(insieme).sort().reverse();
-  const mese = req.mese || (mesi.indexOf(meseCorrente) >= 0 ? meseCorrente : (mesi[0] || meseCorrente));
+// Data da cella: numero seriale oppure testo "05/10/2026 14.03.47"
+function serialC(v) {
+  if (typeof v === "number") return v;
+  const m = String(v || "").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2})[.:](\d{2})(?:[.:](\d{2}))?)?/);
+  if (!m) return null;
+  const ms = Date.UTC(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  return ms / 86400000 + 25569;
+}
 
-  function vuoto() {
-    return { viaggi: 0, rotazioni: 0, km: 0, tonnellate: 0, ore: 0, litri: 0, spesa: 0 };
-  }
+function dataC(serial) {
+  const d = new Date(Math.round((serial - 25569) * 86400000));
+  return String(d.getUTCDate()).padStart(2, "0") + "/" + String(d.getUTCMonth() + 1).padStart(2, "0");
+}
 
-  const perTarga = {};
-  const storico = {};   // targa -> { mese -> {km, litri} }
+function kmC(n) {
+  return n == null ? "—" : Math.round(n).toLocaleString("it-IT");
+}
 
-  righeV.forEach(r => {
-    const targa = String(r[4] || "").trim();
-    if (!targa) return;
-    const m = serialToMese(r[1]);
-    if (!m) return;
+function oggiSerialRoma() {
+  const p = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date()).split("-");
+  return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000 + 25569;
+}
 
-    const km = Number(r[7]) || 0;
-    if (!storico[targa]) storico[targa] = {};
-    if (!storico[targa][m]) storico[targa][m] = { km: 0, litri: 0 };
-    storico[targa][m].km += km;
+/**
+ * righeV: REGISTRO_VIAGGI da riga 2 (colonne A..AD)
+ * righeR: REGISTRO_RIFORNIMENTI da riga 2 (colonne A..G)
+ * mezzi:  { targa: nome } dall'anagrafica
+ * ignorati: { chiave: true }
+ * dal, al: numeri seriali (giorno intero, compresi)
+ */
+function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi) {
+  const out = [];
+  const nel = s => s != null && Math.floor(s) >= dal && Math.floor(s) <= al;
+  const nome = t => (mezzi[t] ? mezzi[t] + " · " : "") + t;
+  function segnala(o) { if (!ignorati[o.chiave]) out.push(o); else nIgnorati++; }
+  let nIgnorati = 0;
 
-    if (m !== mese) return;
-    if (!perTarga[targa]) perTarga[targa] = vuoto();
-    const p = perTarga[targa];
-    p.viaggi += 1;
-    p.rotazioni += Number(r[20]) || 0;
-    p.km += km;
-    p.tonnellate += Number(r[11]) || 0;
-    const ore = parseOre(r[12]);
-    p.ore += ore;
-  });
-
-  righeR.forEach(r => {
-    const targa = String(r[2] || "").trim();
-    if (!targa) return;
-    const m = serialToMese(r[1]);
-    if (!m) return;
-
-    const litri = Number(r[3]) || 0;
-    if (!storico[targa]) storico[targa] = {};
-    if (!storico[targa][m]) storico[targa][m] = { km: 0, litri: 0 };
-    storico[targa][m].litri += litri;
-
-    if (m !== mese) return;
-    if (!perTarga[targa]) perTarga[targa] = vuoto();
-    perTarga[targa].litri += litri;
-    perTarga[targa].spesa += Number(r[4]) || 0;
-  });
-
-  const camion = Object.keys(perTarga).map(targa => {
-    const p = perTarga[targa];
-    return {
-      targa: targa,
-      nome: b.mezzi[targa] || targa,
-      viaggi: p.viaggi,
-      rotazioni: p.rotazioni,
-      km: Math.round(p.km),
-      tonnellate: Math.round(p.tonnellate * 10) / 10,
-      ore: Math.round(p.ore * 10) / 10,
-      litri: Math.round(p.litri * 10) / 10,
-      spesa: Math.round(p.spesa * 100) / 100,
-      consumo: (p.km > 0 && p.litri > 0) ? Math.round(p.litri / p.km * 1000) / 10 : null,
-      euroKm: (p.km > 0 && p.spesa > 0) ? Math.round(p.spesa / p.km * 1000) / 1000 : null
-    };
-  }).sort((a, b2) => b2.km - a.km);
-
-  // andamento degli ultimi 6 mesi, solo dove il consumo e' calcolabile
-  const ultimi = mesi.slice().sort().slice(-6);
-  const andamento = {};
-  Object.keys(storico).forEach(targa => {
-    andamento[targa] = ultimi.map(m => {
-      const d = storico[targa][m];
-      const c = (d && d.km > 0 && d.litri > 0) ? Math.round(d.litri / d.km * 1000) / 10 : null;
-      return { mese: m, consumo: c };
+  // ---------------- VIAGGI ----------------
+  const viaggi = [];
+  righeV.forEach((r, i) => {
+    const s = serialC(r[1]);
+    if (s == null) return;
+    viaggi.push({
+      riga: i + 2, id: String(r[0] || "riga" + (i + 2)), giorno: Math.floor(s),
+      autista: String(r[2] || ""), targa: String(r[4] || "").trim(),
+      kmP: numC(r[5]), kmA: numC(r[6]), km: numC(r[7]),
+      tratta: String(r[18] || r[9] || ""), stato: String(r[15] || ""),
+      ricavo: numC(r[29])
     });
   });
+  const descV = v => dataC(v.giorno) + " · " + v.autista + " · " + v.tratta;
+  const notte = v => /notte/i.test(v.tratta);
 
-  const tot = camion.reduce((a, c) => ({
-    viaggi: a.viaggi + c.viaggi, rotazioni: a.rotazioni + c.rotazioni,
-    km: a.km + c.km, tonnellate: a.tonnellate + c.tonnellate, ore: a.ore + c.ore,
-    litri: a.litri + c.litri, spesa: a.spesa + c.spesa
-  }), { viaggi: 0, rotazioni: 0, km: 0, tonnellate: 0, ore: 0, litri: 0, spesa: 0 });
+  viaggi.forEach(v => {
+    if (!nel(v.giorno)) return;
+    if (v.stato !== "Completato" && v.giorno < oggi) {
+      segnala({ gruppo: "Viaggi", gravita: "media", chiave: "V-APERTO|" + v.id,
+        titolo: "Viaggio rimasto " + (v.stato || "senza stato") + " · " + nome(v.targa),
+        dettaglio: descV(v) + ". Non è stato chiuso: km e ricavo potrebbero mancare.",
+        foglio: "REGISTRO_VIAGGI", riga: v.riga });
+      return;
+    }
+    if (v.stato !== "Completato") return;
+    if (v.ricavo == null || v.ricavo === 0) {
+      segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-RICAVO|" + v.id,
+        titolo: "Viaggio senza ricavo · " + nome(v.targa),
+        dettaglio: descV(v) + ". Totale ricavi a 0: controlla la tratta o il ricavo manuale.",
+        foglio: "REGISTRO_VIAGGI", riga: v.riga });
+    }
+    if (v.km != null && v.km > 900) {
+      segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-KMALTI|" + v.id,
+        titolo: "Km del viaggio troppo alti · " + nome(v.targa),
+        dettaglio: descV(v) + ". " + kmC(v.km) + " km (da " + kmC(v.kmP) + " a " + kmC(v.kmA) + ").",
+        foglio: "REGISTRO_VIAGGI", riga: v.riga });
+    } else if (v.km != null && v.km <= 0 && !notte(v)) {
+      segnala({ gruppo: "Viaggi", gravita: "media", chiave: "V-KMZERO|" + v.id,
+        titolo: "Viaggio con 0 km · " + nome(v.targa),
+        dettaglio: descV(v) + ". Km partenza " + kmC(v.kmP) + ", arrivo " + kmC(v.kmA) + ".",
+        foglio: "REGISTRO_VIAGGI", riga: v.riga });
+    }
+  });
 
-  tot.tonnellate = Math.round(tot.tonnellate * 10) / 10;
-  tot.ore = Math.round(tot.ore * 10) / 10;
-  tot.litri = Math.round(tot.litri * 10) / 10;
-  tot.spesa = Math.round(tot.spesa * 100) / 100;
-  tot.consumo = (tot.km > 0 && tot.litri > 0) ? Math.round(tot.litri / tot.km * 1000) / 10 : null;
-  tot.euroKm = (tot.km > 0 && tot.spesa > 0) ? Math.round(tot.spesa / tot.km * 1000) / 1000 : null;
+  // viaggi doppi: stesso camion, stesso giorno, stessi km di partenza e arrivo
+  const visti = {};
+  viaggi.forEach(v => {
+    if (v.stato !== "Completato" || !v.targa || !v.km || v.kmP == null) return;
+    const k = v.targa + "|" + v.giorno + "|" + v.kmP + "|" + v.kmA;
+    if (visti[k] && nel(v.giorno)) {
+      segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-DOPPIO|" + v.id,
+        titolo: "Possibile viaggio doppio · " + nome(v.targa),
+        dettaglio: descV(v) + ". Stessi km (" + kmC(v.kmP) + " → " + kmC(v.kmA) + ") del viaggio alla riga " + visti[k].riga + ".",
+        foglio: "REGISTRO_VIAGGI", riga: v.riga });
+    } else if (!visti[k]) visti[k] = v;
+  });
 
-  return { mese: mese, mesi: mesi, camion: camion, totali: tot, mesiGrafico: ultimi, andamento: andamento };
+  // contachilometri: ogni viaggio deve partire dove era arrivato il precedente dello stesso camion
+  const perTarga = {};
+  viaggi.forEach(v => {
+    if (v.stato !== "Completato" || !v.targa || v.kmP == null || v.kmA == null || !v.kmP) return;
+    (perTarga[v.targa] = perTarga[v.targa] || []).push(v);
+  });
+  Object.keys(perTarga).forEach(t => {
+    const l = perTarga[t].sort((a, b) => a.giorno - b.giorno || a.kmP - b.kmP);
+    // togli i doppi già segnalati
+    const u = l.filter((v, i) => !(i > 0 && v.giorno === l[i - 1].giorno && v.kmP === l[i - 1].kmP && v.kmA === l[i - 1].kmA));
+    const salta = {};
+    // viaggio "fuori sequenza": salto enorme prima e dopo, in senso opposto
+    for (let i = 1; i < u.length - 1; i++) {
+      const g1 = u[i].kmP - u[i - 1].kmA, g2 = u[i + 1].kmP - u[i].kmA;
+      if (Math.abs(g1) > 500 && Math.abs(g2) > 500 && Math.sign(g1) !== Math.sign(g2)) {
+        salta[i] = true; salta[i + 1] = true;
+        const v = u[i];
+        if (nel(v.giorno)) segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-FUORISEQ|" + v.id,
+          titolo: "Contachilometri fuori sequenza · " + nome(t),
+          dettaglio: descV(v) + ". Km " + kmC(v.kmP) + " → " + kmC(v.kmA) + ", ma i viaggi prima e dopo sono intorno a " +
+            kmC(u[i - 1].kmA) + ". Forse è il camion sbagliato o un errore di battitura.",
+          foglio: "REGISTRO_VIAGGI", riga: v.riga });
+      }
+    }
+    for (let i = 1; i < u.length; i++) {
+      if (salta[i]) continue;
+      const a = u[i - 1], b = u[i], g = b.kmP - a.kmA;
+      if (!nel(b.giorno)) continue;
+      if (g < -5) {
+        const poco = g > -30;
+        segnala({ gruppo: "Viaggi", gravita: poco ? "bassa" : "alta", chiave: "V-KMINDIETRO|" + b.id,
+          titolo: (poco ? "Piccola sovrapposizione di km · " : "Km che tornano indietro · ") + nome(t),
+          dettaglio: descV(b) + ". Parte da " + kmC(b.kmP) + " ma il viaggio precedente (" + dataC(a.giorno) +
+            ", riga " + a.riga + ") era arrivato a " + kmC(a.kmA) + ": " + kmC(-g) + " km sovrapposti.",
+          foglio: "REGISTRO_VIAGGI", riga: b.riga });
+      } else if (g > 500) {
+        segnala({ gruppo: "Viaggi", gravita: "media", chiave: "V-KMBUCO|" + b.id,
+          titolo: "Km non registrati · " + nome(t),
+          dettaglio: kmC(g) + " km tra l'arrivo del " + dataC(a.giorno) + " (" + kmC(a.kmA) + ", riga " + a.riga +
+            ") e la partenza del " + dataC(b.giorno) + " (" + kmC(b.kmP) + "). Manca un viaggio o c'è un errore.",
+          foglio: "REGISTRO_VIAGGI", riga: b.riga });
+      }
+    }
+  });
+
+  // ---------------- RIFORNIMENTI ----------------
+  const rif = [];
+  righeR.forEach((r, i) => {
+    const s = serialC(r[1]);
+    if (s == null) return;
+    const targa = String(r[2] || "").trim();
+    rif.push({
+      riga: i + 2, s: s, giorno: Math.floor(s), targa: targa,
+      id: String(r[0] || "") || ("R" + Math.round(s * 1440) + targa + String(r[4])),
+      litri: numC(r[3]), costo: numC(r[4]), km: numC(r[5])
+    });
+  });
+  const descR = x => dataC(x.giorno) + " · " + (x.litri != null ? x.litri.toLocaleString("it-IT") + " L" : "litri mancanti") +
+    " · " + (x.costo != null ? x.costo.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €" : "importo mancante");
+
+  // prezzo al litro "normale": mediana degli ultimi 150 rifornimenti
+  const prezzi = rif.filter(x => x.litri > 0 && x.costo > 0).slice(-150).map(x => x.costo / x.litri).sort((a, b) => a - b);
+  const mediana = prezzi.length ? prezzi[Math.floor(prezzi.length / 2)] : null;
+  const sconosciute = {};
+
+  rif.forEach(x => {
+    if (!nel(x.giorno)) return;
+    if (x.targa && !mezzi[x.targa]) {
+      const e = sconosciute[x.targa] = sconosciute[x.targa] || { n: 0, euro: 0, righe: [] };
+      e.n++; e.euro += x.costo || 0; e.righe.push(x.riga);
+    }
+    if (!x.litri || !x.costo || x.litri <= 0 || x.costo <= 0) {
+      segnala({ gruppo: "Rifornimenti", gravita: "alta", chiave: "R-VUOTO|" + x.id,
+        titolo: "Litri o importo mancanti · " + nome(x.targa),
+        dettaglio: descR(x) + ".", foglio: "REGISTRO_RIFORNIMENTI", riga: x.riga });
+    } else if (mediana) {
+      const p = x.costo / x.litri, scarto = p / mediana - 1;
+      if (Math.abs(scarto) > 0.08 || x.litri > 800) {
+        segnala({ gruppo: "Rifornimenti", gravita: "alta", chiave: "R-PREZZO|" + x.id,
+          titolo: "Litri o importo sbagliati · " + nome(x.targa),
+          dettaglio: descR(x) + " = " + p.toLocaleString("it-IT", { maximumFractionDigits: 3 }) + " €/L, di solito " +
+            mediana.toLocaleString("it-IT", { maximumFractionDigits: 2 }) + " €/L." +
+            (scarto > 0.08 ? " Forse c'è dentro anche l'AdBlue." : "") +
+            (x.litri > 800 ? " Litri impossibili per un pieno." : ""),
+          foglio: "REGISTRO_RIFORNIMENTI", riga: x.riga });
+      }
+    }
+    if (!x.km) {
+      segnala({ gruppo: "Rifornimenti", gravita: "bassa", chiave: "R-SENZAKM|" + x.id,
+        titolo: "Rifornimento senza km · " + nome(x.targa),
+        dettaglio: descR(x) + ". Senza i km il consumo del camion non torna.",
+        foglio: "REGISTRO_RIFORNIMENTI", riga: x.riga });
+    }
+  });
+
+  // targhe che non sono in anagrafica: una sola segnalazione per targa
+  Object.keys(sconosciute).forEach(t => {
+    const e = sconosciute[t];
+    segnala({ gruppo: "Rifornimenti", gravita: "media", chiave: "R-TARGA|" + t,
+      titolo: "Targa non in anagrafica · " + t,
+      dettaglio: e.n + (e.n === 1 ? " rifornimento" : " rifornimenti") + " nel periodo per " +
+        e.euro.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+        " €. Questa targa non è tra i camion: errore di battitura o mezzo esterno? Righe " + e.righe.join(", ") + ".",
+      foglio: "REGISTRO_RIFORNIMENTI", riga: e.righe[0] });
+  });
+
+  // km dei rifornimenti dello stesso camion: devono solo salire
+  const rPerTarga = {};
+  rif.forEach(x => { if (x.targa && x.km > 0) (rPerTarga[x.targa] = rPerTarga[x.targa] || []).push(x); });
+  Object.keys(rPerTarga).forEach(t => {
+    const l = rPerTarga[t].sort((a, b) => a.s - b.s);
+    const salta = {};
+    for (let i = 1; i < l.length - 1; i++) {
+      const g1 = l[i].km - l[i - 1].km, g2 = l[i + 1].km - l[i].km;
+      if (Math.abs(g1) > 3000 && Math.abs(g2) > 3000 && Math.sign(g1) !== Math.sign(g2)) {
+        salta[i] = true; salta[i + 1] = true;
+        if (nel(l[i].giorno)) segnala({ gruppo: "Rifornimenti", gravita: "alta", chiave: "R-FUORISEQ|" + l[i].id,
+          titolo: "Km del rifornimento fuori sequenza · " + nome(t),
+          dettaglio: descR(l[i]) + ". Km " + kmC(l[i].km) + ", ma prima e dopo il camion era intorno a " + kmC(l[i - 1].km) + ".",
+          foglio: "REGISTRO_RIFORNIMENTI", riga: l[i].riga });
+      }
+    }
+    for (let i = 1; i < l.length; i++) {
+      if (salta[i] || !nel(l[i].giorno)) continue;
+      const g = l[i].km - l[i - 1].km;
+      if (g < -5) {
+        segnala({ gruppo: "Rifornimenti", gravita: "alta", chiave: "R-KMINDIETRO|" + l[i].id,
+          titolo: "Km del rifornimento più bassi del precedente · " + nome(t),
+          dettaglio: descR(l[i]) + ". Km " + kmC(l[i].km) + ", ma il " + dataC(l[i - 1].giorno) + " (riga " + l[i - 1].riga +
+            ") erano " + kmC(l[i - 1].km) + ".",
+          foglio: "REGISTRO_RIFORNIMENTI", riga: l[i].riga });
+      }
+    }
+  });
+
+  // ---------------- CAMION ----------------
+  if (al - dal >= 4) {
+    const kmPer = {}, rifPer = {};
+    viaggi.forEach(v => { if (v.stato === "Completato" && nel(v.giorno) && v.targa) kmPer[v.targa] = (kmPer[v.targa] || 0) + (v.km || 0); });
+    rif.forEach(x => { if (nel(x.giorno) && x.targa) rifPer[x.targa] = (rifPer[x.targa] || 0) + 1; });
+    Object.keys(kmPer).forEach(t => {
+      if (kmPer[t] >= 1000 && !rifPer[t]) {
+        segnala({ gruppo: "Camion", gravita: "media", chiave: "C-SENZARIF|" + t + "|" + dal + "|" + al,
+          titolo: "Nessun rifornimento registrato · " + nome(t),
+          dettaglio: kmC(kmPer[t]) + " km di viaggi nel periodo ma nessun rifornimento: manca una ricevuta o è sotto un'altra targa?",
+          foglio: "REGISTRO_RIFORNIMENTI", riga: null });
+      }
+    });
+  }
+
+  const peso = { alta: 0, media: 1, bassa: 2 };
+  out.sort((a, b) => peso[a.gravita] - peso[b.gravita]);
+  return {
+    segnalazioni: out,
+    conteggi: { alta: out.filter(o => o.gravita === "alta").length, media: out.filter(o => o.gravita === "media").length,
+                bassa: out.filter(o => o.gravita === "bassa").length },
+    ignorati: nIgnorati
+  };
+}
+
+async function azControlli(req) {
+  const b = await base();
+  const oggi = oggiSerialRoma();
+  const dal = req.dal ? Math.floor(dataSerial(req.dal)) : oggi - 6;
+  const al = req.al ? Math.floor(dataSerial(req.al)) : oggi;
+
+  const risp = await sheets().spreadsheets.values.batchGet({
+    spreadsheetId: SHEET_ID,
+    ranges: ["REGISTRO_VIAGGI!A2:AD" + (FINESTRA_MAX + 1), "REGISTRO_RIFORNIMENTI!A2:G5000", "CONTROLLI_IGNORATI!A2:A5000"],
+    valueRenderOption: "UNFORMATTED_VALUE",
+    dateTimeRenderOption: "SERIAL_NUMBER"
+  }).catch(async e => {
+    // se il foglio CONTROLLI_IGNORATI non c'è ancora, leggo solo gli altri due
+    const r2 = await sheets().spreadsheets.values.batchGet({
+      spreadsheetId: SHEET_ID,
+      ranges: ["REGISTRO_VIAGGI!A2:AD" + (FINESTRA_MAX + 1), "REGISTRO_RIFORNIMENTI!A2:G5000"],
+      valueRenderOption: "UNFORMATTED_VALUE",
+      dateTimeRenderOption: "SERIAL_NUMBER"
+    });
+    r2.data.valueRanges.push({ values: [] });
+    return r2;
+  });
+  const blocchi = (risp.data.valueRanges || []).map(v => v.values || []);
+  const ignorati = {};
+  (blocchi[2] || []).forEach(r => { if (r[0]) ignorati[String(r[0])] = true; });
+
+  const ris = calcolaControlli(blocchi[0], blocchi[1], b.mezzi, ignorati, dal, al, oggi);
+  ris.dal = serialToISO(dal);
+  ris.al = serialToISO(al);
+  return ris;
+}
+
+async function azIgnoraControllo(req) {
+  if (!req.chiave) throw new Error("Segnalazione mancante.");
+  await sheets().spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: "CONTROLLI_IGNORATI!A1:D1",
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [[String(req.chiave), oraLocale() + " " + serialToData(oggiSerialRoma()), String(req.titolo || ""), String(req.nota || "")]] }
+  });
+  return { msg: "Segnalazione ignorata." };
 }
 
 // Le ore possono arrivare come "4:30", "4,5" o numero: le riporto a decimale
@@ -735,7 +941,8 @@ exports.handler = async function (event) {
       case "rifornimento":  dati = await azRifornimento(req); break;
       case "foto":          dati = await azFoto(req); break;
       case "modifica":      dati = await azModifica(req); break;
-      case "resoconti":     dati = await azResoconti(req); break;
+      case "controlli":     dati = await azControlli(req); break;
+      case "ignoraControllo": dati = await azIgnoraControllo(req); break;
       default: return rispondi({ ok: false, msg: "Azione sconosciuta: " + req.azione });
     }
     return rispondi({ ok: true, dati });
