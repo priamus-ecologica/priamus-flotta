@@ -88,6 +88,12 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
   color: var(--blue); font-weight: 700; font-size: 13px; font-family: inherit; cursor: pointer;
   box-shadow: 0 4px 12px rgba(11,25,44,.12); }
 .btn-indietro:hover { border-color: var(--orange); color: var(--orange); }
+.mv-avviso { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 1000; max-width: 92vw;
+  padding: 12px 18px; border-radius: 10px; font-weight: 700; font-size: 14px; box-shadow: 0 8px 24px rgba(11,25,44,.25);
+  transition: opacity .25s; }
+.mv-avviso.ok { background: #15803d; color: #fff; opacity: 1; }
+.mv-avviso.err { background: #b91c1c; color: #fff; opacity: 1; }
+.mv-avviso.nascosto { opacity: 0; pointer-events: none; }
 .ctrl-link { cursor: pointer; transition: box-shadow .15s; }
 .ctrl-link:hover { box-shadow: 0 4px 14px rgba(11,25,44,.12); }
 .ctrl-vai { color: var(--orange); font-weight: 700; margin-top: 3px; }
@@ -98,7 +104,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 table.mvt { border-collapse: collapse; width: 100%; font-size: 12.5px; }
 .mvt th { position: sticky; top: 0; z-index: 1; background: #f1f5f9; text-align: left; white-space: nowrap;
   padding: 9px 7px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--light); }
-.mvt td { padding: 7px; border-top: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+.mvt td { padding: 4px 7px; height: 46px; border-top: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
 .mvt .num { text-align: right; }
 .mvt tr.r { cursor: pointer; }
 .mvt tr.r:hover td { background: #fff7ed; }
@@ -109,7 +115,8 @@ table.mvt { border-collapse: collapse; width: 100%; font-size: 12.5px; }
 .mvt-stato { font-weight: 700; font-size: 11.5px; }
 .mvt-mod { color: var(--light); font-size: 11px; }
 .mvt tr.r:hover .mvt-mod { color: var(--orange); font-weight: 700; }
-.mvt-avviso { color: #dc2626; font-size: 10.5px; font-weight: 700; white-space: normal; max-width: 90px; }
+.mvt-avviso { position: absolute; left: 7px; bottom: 1px; color: #dc2626; font-size: 9.5px; font-weight: 700; white-space: nowrap; }
+.mvt td.rel { position: relative; }
 .mvt td:first-child, .mvt th:first-child { position: sticky; left: 0; background: #fff; z-index: 1; }
 .mvt td:last-child, .mvt th:last-child { position: sticky; right: 0; background: #fff; z-index: 1;
   box-shadow: -6px 0 8px -6px rgba(11,25,44,.18); }
@@ -222,7 +229,7 @@ table.mvt { border-collapse: collapse; width: 100%; font-size: 12.5px; }
     <button id="mv-indietro" class="btn-indietro hidden" onclick="tornaAnomalie()">← Torna alle anomalie</button>
     <p class="sub">Correggi i viaggi, anche quelli chiusi, senza toccare il foglio</p>
     <div class="mv-filtri">
-      <div class="grp"><label>Chi modifica</label><input type="text" id="mv-chi" placeholder="Il tuo nome" onchange="mvSalvaChi(this.value.trim())"></div>
+      <div class="grp"><label>Chi modifica</label><input type="text" id="mv-chi" placeholder="Il tuo nome" onchange="mvSalvaChi(this.value.trim())" oninput="this.style.borderColor=''"></div>
       <div class="grp"><label>Dal</label><input type="date" id="mv-dal"></div>
       <div class="grp"><label>Al</label><input type="date" id="mv-al"></div>
       <div class="grp"><label>Camion</label><select id="mv-camion"></select></div>
@@ -1304,8 +1311,13 @@ function disegnaMV(info) {
   if (!MV.length) { $("mv-lista").innerHTML = "<div class='viaggio' style='text-align:center;color:var(--light)'>Nessun viaggio trovato.</div>"; return; }
   const col = { "Completato": "#16a34a", "In Corso": "#0284c7", "Assegnato": "#ea580c" };
   let html = "<div class='hint' style='margin-bottom:8px'>" + (info && info.troppi ? "Mostro i primi 300 di " + info.totale + ": restringi i filtri." : MV.length + " viaggi") + "</div>";
-  html += MV.map(v =>
-    "<div id='mvc-" + v.id + "' style='background:#fff;border:1px solid var(--border);border-left:5px solid " + (col[v.stato] || "#94a3b8") +
+  html += MV.map(cardMV).join("");
+  $("mv-lista").innerHTML = html;
+}
+
+function cardMV(v) {
+  const col = { "Completato": "#16a34a", "In Corso": "#0284c7", "Assegnato": "#ea580c" };
+  return "<div id='mvc-" + v.id + "' style='background:#fff;border:1px solid var(--border);border-left:5px solid " + (col[v.stato] || "#94a3b8") +
     ";border-radius:10px;margin-bottom:8px'>" +
       "<div onclick=\"apriViaggioMV('" + v.id + "')\" style='padding:11px;cursor:pointer'>" +
         "<div style='display:flex;gap:8px'><div style='flex:1;min-width:0'>" +
@@ -1314,19 +1326,52 @@ function disegnaMV(info) {
           "<div style='text-align:right;font-size:12px'><div style='font-weight:700;color:var(--blue)'>" + (v.km != null ? v.km.toLocaleString("it-IT") + " km" : "— km") + "</div>" +
           "<div style='color:var(--light)'>" + euro(v.ricavoTotale) + "</div></div></div>" +
       "</div>" +
-      "<div id='mvf-" + v.id + "'></div>" +
-    "</div>").join("");
-  $("mv-lista").innerHTML = html;
+      "<div id='mvf-" + v.id + "'>" + (MV_APERTO === v.id ? moduloMV(v) : "") + "</div>" +
+    "</div>";
+}
+
+// elemento del viaggio: riga della tabella (computer) o scheda (telefono)
+function elementoMV(id) { return $("mvr-" + id) || $("mvc-" + id); }
+
+// ridisegna SOLO quel viaggio, senza toccare il resto della pagina
+function ridisegnaUnoMV(id) {
+  const v = MV.find(x => x.id === id);
+  if (!v) return;
+  if ($("mvr-" + id)) $("mvr-" + id).outerHTML = (MV_APERTO === id ? rigaEditMV(v) : rigaVistaMV(v));
+  else if ($("mvc-" + id)) $("mvc-" + id).outerHTML = cardMV(v);
+  if (MV_APERTO === id) segnaMV(id);
+}
+
+// tiene fermo sullo schermo il viaggio "id" mentre sopra si apre o si chiude qualcosa
+function senzaSaltiMV(id, cambia) {
+  const el0 = elementoMV(id);
+  const top0 = el0 ? el0.getBoundingClientRect().top : null;
+  cambia();
+  const el = elementoMV(id);
+  if (!el || top0 === null) return;
+  let d = el.getBoundingClientRect().top - top0;
+  const wrap = el.closest(".mvt-wrap");
+  if (d && wrap && wrap.scrollHeight > wrap.clientHeight) { wrap.scrollTop += d; d = el.getBoundingClientRect().top - top0; }
+  if (d) window.scrollBy(0, d);
 }
 
 function apriViaggioMV(id) {
-  if (mvLargo()) { MV_APERTO = (MV_APERTO === id ? null : id); disegnaMV(); return; }
-  if (MV_APERTO && MV_APERTO !== id && $("mvf-" + MV_APERTO)) $("mvf-" + MV_APERTO).innerHTML = "";
-  if (MV_APERTO === id) { $("mvf-" + id).innerHTML = ""; MV_APERTO = null; return; }
-  MV_APERTO = id;
-  const v = MV.find(x => x.id === id);
-  $("mvf-" + id).innerHTML = moduloMV(v);
-  aggiornaKmMV(id);
+  senzaSaltiMV(id, () => {
+    const prima = MV_APERTO;
+    MV_APERTO = (prima === id ? null : id);
+    if (prima && prima !== id) ridisegnaUnoMV(prima);
+    ridisegnaUnoMV(id);
+  });
+}
+
+// messaggio in basso che non sposta la pagina
+function avvisoMV(testo, tipo) {
+  let t = $("mv-avviso");
+  if (!t) { t = document.createElement("div"); t.id = "mv-avviso"; document.body.appendChild(t); }
+  t.textContent = testo;
+  t.className = "mv-avviso " + (tipo || "ok");
+  clearTimeout(avvisoMV._t);
+  avvisoMV._t = setTimeout(() => { t.className = "mv-avviso nascosto"; }, tipo === "err" ? 7000 : 3500);
 }
 
 function campoMV(etichetta, html, nota) {
@@ -1446,7 +1491,7 @@ function segnaMV(id) {
 
 async function salvaViaggioMV(id) {
   const chi = $("mv-chi").value.trim();
-  if (!chi) { msg("mv-msg", "Scrivi il tuo nome in \"Chi modifica\" in alto.", "err"); mostra("mv-msg"); window.scrollTo(0, 0); $("mv-chi").focus(); return; }
+  if (!chi) { avvisoMV("Scrivi il tuo nome in \"Chi modifica\" in alto.", "err"); $("mv-chi").focus({ preventScroll: true }); $("mv-chi").style.borderColor = "#dc2626"; return; }
   mvSalvaChi(chi);
   const c = cambiMV(id);
   const b = $("mv-salva-" + id);
@@ -1454,14 +1499,11 @@ async function salvaViaggioMV(id) {
   try {
     const r = await api("salvaViaggio", { id: id, chi: chi, prima: c.prima, dopo: c.dopo });
     if (r.viaggio) { const i = MV.findIndex(x => x.id === id); if (i >= 0) MV[i] = r.viaggio; }
-    MV_APERTO = null;
-    disegnaMV();
-    msg("mv-msg", r.msg, "ok"); mostra("mv-msg");
-    const card = $("mvc-" + id); if (card) card.scrollIntoView({ block: "center" });
-    setTimeout(() => nascondi("mv-msg"), 4000);
+    senzaSaltiMV(id, () => { MV_APERTO = null; ridisegnaUnoMV(id); });
+    avvisoMV("✅ " + r.msg, "ok");
   } catch (e) {
     b.disabled = false; segnaMV(id);
-    msg("mv-msg", e.message, "err"); mostra("mv-msg"); window.scrollTo(0, 0);
+    avvisoMV("⚠️ " + e.message, "err");
   }
 }
 
@@ -1499,8 +1541,17 @@ function tabellaMV() {
     MV_COLONNE.map(c => "<th class='" + c[1] + "'>" + c[0] + "</th>").join("") + "</tr></thead><tbody>";
   MV.forEach(v => {
     if (v.id === MV_APERTO) { h += rigaEditMV(v); return; }
+    h += rigaVistaMV(v);
+  });
+  return h + "</tbody></table></div>";
+}
+
+function rigaVistaMV(v) {
+  const col = { "Completato": "#16a34a", "In Corso": "#0284c7", "Assegnato": "#ea580c" };
+  const n = x => (x === "" || x == null) ? "" : Number(x).toLocaleString("it-IT");
+  let h = "";
     const ore = v.ore === "" ? "" : (Math.floor(v.ore) + ":" + String(Math.round((v.ore - Math.floor(v.ore)) * 60)).padStart(2, "0"));
-    h += "<tr class='r' onclick=\"apriViaggioMV('" + v.id + "')\" title='Clicca per modificare'>" +
+    h += "<tr class='r' id='mvr-" + v.id + "' onclick=\"apriViaggioMV('" + v.id + "')\" title='Clicca per modificare'>" +
       "<td>" + dataIt(v.data) + "</td>" +
       "<td><span class='mvt-stato' style='color:" + (col[v.stato] || "#64748b") + "'>● " + escH(v.stato || "—") + "</span></td>" +
       "<td><b>" + escH(v.tratta || "—") + "</b></td>" +
@@ -1519,8 +1570,7 @@ function tabellaMV() {
       "<td class='mvt-nota'>" + escH(v.nota) + "</td><td class='mvt-nota'>" + escH(v.notaAut) + "</td>" +
       "<td>" + v.foto.map((u, i) => "<a href='" + escH(u) + "' target='_blank' rel='noopener' onclick='event.stopPropagation()'>📄" + (v.foto.length > 1 ? i + 1 : "") + "</a>").join(" ") + "</td>" +
       "<td><span class='mvt-mod'>✏️ Modifica</span></td></tr>";
-  });
-  return h + "</tbody></table></div>";
+  return h;
 }
 
 function rigaEditMV(v) {
@@ -1532,7 +1582,7 @@ function rigaEditMV(v) {
     ? "<option value=\"" + escH(val) + "\" selected>" + escH(val) + " (non in elenco)</option>" : "";
   const vuota = "<option value=''>—</option>";
   const hh = Math.floor(Number(v.ore) || 0), mm = Math.round(((Number(v.ore) || 0) - hh) * 60);
-  return "<tr class='ed'>" +
+  return "<tr class='ed' id='mvr-" + id + "'>" +
     "<td>" + inp("data", "date", v.data, 135) + "</td>" +
     "<td>" + sel("stato", vuota + STATI_MV.map(s => "<option" + (s === v.stato ? " selected" : "") + ">" + s + "</option>").join(""), 115) + "</td>" +
     "<td>" + sel("tratta", vuota + extraOpt(v.tratta, (DATI.regole || []).map(r => r.chiave)) + opzioniTratte(v.tratta), 170) + "</td>" +
@@ -1545,7 +1595,7 @@ function rigaEditMV(v) {
     "<td>" + inp("kmA", "number", v.kmA, 95, "step='0.1'") + "</td>" +
     "<td class='num'><span id='mv-kmcalc-" + id + "'></span></td>" +
     "<td>" + inp("nViaggi", "number", v.nViaggi, 55, "min='1' step='1'") + "</td>" +
-    "<td>" + inp("ton", "number", v.ton, 75, "step='0.01'") + "<div id='mv-tonhint-" + id + "' class='mvt-avviso'></div></td>" +
+    "<td class='rel'>" + inp("ton", "number", v.ton, 75, "step='0.01'") + "<div id='mv-tonhint-" + id + "' class='mvt-avviso'></div></td>" +
     "<td style='white-space:nowrap'><select id='mv-oreh-" + id + "' style='width:62px' onchange=\"segnaMV('" + id + "')\">" + opzioniOreSel(v.ore === "" ? "" : hh) + "</select>" +
       " <select id='mv-orem-" + id + "' style='width:62px' onchange=\"segnaMV('" + id + "')\">" + opzioniMinSel(v.ore === "" ? "" : mm) + "</select></td>" +
     "<td class='num'>" + euro(v.ricavoTariffa) + "</td>" +
