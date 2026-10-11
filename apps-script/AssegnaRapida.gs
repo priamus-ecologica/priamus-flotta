@@ -139,7 +139,7 @@ function anagrafiche_() {
     shM.getRange(2, 1, nM, 4).getValues().forEach(r => {
       const targa = String(r[1] || "").trim();
       const modello = String(r[3] || "").trim();
-      if (targa) mezzi.push({ targa: targa, modello: modello || targa });
+      if (targa) mezzi.push({ targa: targa, modello: modello || targa, categoria: String(r[2] || "").trim() });
     });
   }
 
@@ -194,10 +194,10 @@ function trovaAutista_(testo, ana, sin) {
   const t = norm_(testo);
   if (!t) return { valore: "", esito: "no" };
 
-  if (sin.AUTISTA[t]) return { valore: sin.AUTISTA[t], esito: "ok" };
-
-  // nome completo
+  // nome completo (l'anagrafica vince sempre sui sinonimi)
   for (const a of ana.autisti) if (norm_(a) === t) return { valore: a, esito: "ok" };
+
+  if (sin.AUTISTA[t]) return { valore: sin.AUTISTA[t], esito: "ok" };
 
   // solo nome (ultima parola) oppure solo cognome (tutto il resto)
   const perNome = ana.autisti.filter(a => norm_(a.split(/\s+/).pop()) === t);
@@ -225,10 +225,18 @@ function trovaCamion_(testo, ana, sin) {
   const t = norm_(testo);
   if (!t) return { valore: "", esito: "no" };
 
-  if (sin.CAMION[t]) return { valore: sin.CAMION[t], esito: "ok" };
-
   for (const m of ana.mezzi) {
     if (norm_(m.modello) === t || norm_(m.targa) === t) return { valore: m.targa, esito: "ok" };
+  }
+
+  if (sin.CAMION[t]) return { valore: sin.CAMION[t], esito: "ok" };
+
+  // "Pierandelo 4 assi Renault": tolgo una parola alla volta davanti finche' trovo il camion
+  const parole = String(testo).trim().split(/\s+/);
+  for (let k = 1; k <= parole.length - 2; k++) {
+    const coda = norm_(parole.slice(k).join(" "));
+    for (const m of ana.mezzi) if (norm_(m.modello) === coda) return { valore: m.targa, esito: "ok" };
+    if (sin.CAMION[coda]) return { valore: sin.CAMION[coda], esito: "ok" };
   }
   let best = null, bestD = 99;
   ana.mezzi.forEach(m => {
@@ -255,9 +263,9 @@ function trovaTratta_(testo, ana, sin) {
   const t = norm_(testo);
   if (!t) return { valore: "", esito: "no" };
 
-  if (sin.TRATTA[t]) return { valore: sin.TRATTA[t], esito: "ok" };
-
   for (const r of ana.regole) if (norm_(r.chiave) === t) return { valore: r.chiave, esito: "ok" };
+
+  if (sin.TRATTA[t]) return { valore: sin.TRATTA[t], esito: "ok" };
 
   // punteggio per parole in comune + somiglianza
   const pt = parole_(testo);
@@ -308,11 +316,30 @@ function LEGGI_MESSAGGIO() {
   let autistaCorr = "", autistaRaw = "", camionCorr = "", camionRaw = "";
   let esitoAut = "no", esitoCam = "no";
 
+  function nuovoViaggio_(rimorchio, rimRaw, esitoRim, est, tra) {
+    return {
+      autista: autistaCorr, autistaRaw: autistaRaw, esitoAut: esitoAut,
+      camion: camionCorr, camionRaw: camionRaw, esitoCam: esitoCam,
+      rimorchio: rimorchio, rimorchioRaw: rimRaw, esitoRim: esitoRim,
+      tratta: tra.valore, trattaRaw: est.testo, esitoTra: tra.esito,
+      nota: est.orario ? ("Orario " + est.orario) : ""
+    };
+  }
+  function impostaAutista_(div) {
+    autistaRaw = div.autistaRaw; camionRaw = div.camionRaw;
+    const a = trovaAutista_(div.autistaRaw, ana, sin);
+    const c = trovaCamion_(div.camionRaw, ana, sin);
+    autistaCorr = a.valore; esitoAut = a.esito;
+    camionCorr = c.valore;  esitoCam = c.esito;
+  }
+  // senza rimorchio va bene solo per i 4 assi
+  function esitoSenzaRim_() { return eQuattroAssi_(camionCorr, ana) ? "ok" : "no"; }
+
   righe.forEach(riga => {
     if (!riga) return;
 
-    // --- data (di solito la prima riga)
-    if (!data) {
+    // --- data: solo nelle righe prima del primo autista (es. "Viaggi lunedi' 12 ottobre" o "12/10")
+    if (!data && !autistaRaw && !viaggi.length) {
       const d = leggiData_(riga);
       if (d) { data = d; return; }
     }
@@ -329,38 +356,35 @@ function LEGGI_MESSAGGIO() {
       return;
     }
 
-    // --- riga che e' SOLO un camion: non assegnabile
-    const soloCamion = trovaCamion_(riga, ana, sin);
-    if (soloCamion.esito === "ok") { scartate.push(riga); return; }
-
     // --- riga di viaggio: comincia con il nome di un rimorchio
     const pezzi = riga.split(/\s+/);
     const rim = trovaRimorchio_(pezzi[0], ana, sin);
     if (rim.esito === "ok" && pezzi.length > 1) {
-      const resto = pezzi.slice(1).join(" ");
-      const est = estraiOrario_(resto);
+      const est = estraiOrario_(pezzi.slice(1).join(" "));
       const tra = trovaTratta_(est.testo, ana, sin);
-
-      viaggi.push({
-        autista: autistaCorr, autistaRaw: autistaRaw, esitoAut: esitoAut,
-        camion: camionCorr, camionRaw: camionRaw, esitoCam: esitoCam,
-        rimorchio: rim.valore, rimorchioRaw: pezzi[0], esitoRim: "ok",
-        tratta: tra.valore, trattaRaw: est.testo, esitoTra: tra.esito,
-        nota: est.orario ? ("Orario " + est.orario) : ""
-      });
+      viaggi.push(nuovoViaggio_(rim.valore, pezzi[0], "ok", est, tra));
       return;
     }
 
-    // --- altrimenti: autista + camion
-    const div = dividiAutistaCamion_(riga, ana, sin);
-    if (div) {
-      autistaRaw = div.autistaRaw; camionRaw = div.camionRaw;
-      const a = trovaAutista_(div.autistaRaw, ana, sin);
-      const c = trovaCamion_(div.camionRaw, ana, sin);
-      autistaCorr = a.valore; esitoAut = a.esito;
-      camionCorr = c.valore;  esitoCam = c.esito;
-      return;
-    }
+    // --- autista + camion riconosciuti entrambi (anche "Delle Monache 4 assi iveco (2)")
+    const div = dividiAutistaCamion_(riga, ana, sin, true);
+    if (div) { impostaAutista_(div); return; }
+
+    // --- viaggio SENZA rimorchio (4 assi): "Roda: via ripoli x coget" sotto l'autista
+    const est0 = estraiOrario_(riga);
+    const tra0 = trovaTratta_(est0.testo, ana, sin);
+    if (autistaRaw && tra0.esito === "ok") { viaggi.push(nuovoViaggio_("", "", esitoSenzaRim_(), est0, tra0)); return; }
+
+    // --- riga che e' SOLO un camion: non assegnabile
+    const soloCamion = trovaCamion_(riga, ana, sin);
+    if (soloCamion.esito === "ok") { scartate.push(riga); return; }
+
+    // --- autista riconosciuto, camion no
+    const div2 = dividiAutistaCamion_(riga, ana, sin, false);
+    if (div2) { impostaAutista_(div2); return; }
+
+    // --- tratta incerta senza rimorchio
+    if (autistaRaw && tra0.esito === "forse") { viaggi.push(nuovoViaggio_("", "", esitoSenzaRim_(), est0, tra0)); return; }
 
     scartate.push(riga);
   });
@@ -368,15 +392,36 @@ function LEGGI_MESSAGGIO() {
   scriviGriglia_(sh, data, viaggi, scartate, ana);
 }
 
-// "21/08" oppure "21/08/2026" oppure "21-8"
+// "21/08", "21/08/2026", "21-8", "Viaggi lunedi' 12 ottobre", "12 ottobre 2026"
 function leggiData_(riga) {
-  const m = String(riga).match(/^\s*(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.](\d{2,4}))?\s*$/);
-  if (!m) return null;
-  const gg = Number(m[1]), mm = Number(m[2]);
-  let aa = m[3] ? Number(m[3]) : new Date().getFullYear();
-  if (aa < 100) aa += 2000;
+  const t = String(riga).toLowerCase();
+  const MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
+                "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+  let gg, mm, aa = null;
+  let m = t.match(/(?:^|[^\d.])(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?(?!\d)/) ||
+          t.match(/^\s*(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\s*$/);
+  if (m) { gg = Number(m[1]); mm = Number(m[2]); if (m[3]) aa = Number(m[3]); }
+  else {
+    m = t.match(new RegExp("(?:^|\\D)(\\d{1,2})\\s+(" + MESI.join("|") + ")(?:\\s+(\\d{4}))?"));
+    if (!m) return null;
+    gg = Number(m[1]); mm = MESI.indexOf(m[2]) + 1; if (m[3]) aa = Number(m[3]);
+  }
   if (gg < 1 || gg > 31 || mm < 1 || mm > 12) return null;
+  if (aa !== null && aa < 100) aa += 2000;
+  if (aa === null) {
+    // anno non scritto: quello piu' vicino a oggi (a fine dicembre "2 gennaio" e' l'anno dopo)
+    const oggi = new Date();
+    aa = oggi.getFullYear();
+    const giorni = (new Date(aa, mm - 1, gg) - oggi) / 86400000;
+    if (giorni < -180) aa++;
+    else if (giorni > 180) aa--;
+  }
   return new Date(aa, mm - 1, gg, 12, 0, 0);
+}
+
+function eQuattroAssi_(camion, ana) {
+  const m = ana.mezzi.filter(x => x.targa === camion || x.modello === camion)[0];
+  return !!m && /4\s*assi/i.test(m.categoria + " " + m.modello);
 }
 
 // toglie l'orario dalla tratta: "isernia 8,30" -> {testo:"isernia", orario:"8:30"}
@@ -396,7 +441,7 @@ function estraiOrario_(testo) {
 }
 
 // "Massimo Mercedes 510 (2)" -> autista "Massimo", camion "Mercedes 510 (2)"
-function dividiAutistaCamion_(riga, ana, sin) {
+function dividiAutistaCamion_(riga, ana, sin, soloSeCompleto) {
   const pezzi = riga.split(/\s+/);
   if (pezzi.length < 2) return null;
 
@@ -406,10 +451,11 @@ function dividiAutistaCamion_(riga, ana, sin) {
     const destra = pezzi.slice(i).join(" ");
     const c = trovaCamion_(destra, ana, sin);
     const a = trovaAutista_(sinistra, ana, sin);
-    if (c.esito !== "no" && a.esito !== "no") {
+    if (soloSeCompleto ? (c.esito === "ok" && a.esito === "ok") : (c.esito !== "no" && a.esito !== "no")) {
       return { autistaRaw: sinistra, camionRaw: destra };
     }
   }
+  if (soloSeCompleto) return null;
   // camion non riconosciuto: prendo la prima parola come autista
   const a1 = trovaAutista_(pezzi[0], ana, sin);
   if (a1.esito !== "no") {
@@ -567,7 +613,7 @@ function CREA_VIAGGI() {
     const mancano = [];
     if (ana.autisti.indexOf(autista) < 0) mancano.push("autista");
     if (!mezzo) mancano.push("camion");
-    if (!rim) mancano.push("rimorchio");
+    if (!rim && !(rimEt === "" && mezzo && eQuattroAssi_(mezzo.targa, ana))) mancano.push("rimorchio");
     if (!reg) mancano.push("tratta");
 
     if (mancano.length) {
@@ -608,7 +654,7 @@ function CREA_VIAGGI() {
     nuove.push([
       Utilities.getUuid(), data, p.autista, "",
       p.mezzo.targa, "", "", "", partenza, p.reg.arrivo,
-      p.rim.targa, "", "", "", "", "Assegnato", "",
+      p.rim ? p.rim.targa : "", "", "", "", "", "Assegnato", "",
       p.nota, p.reg.chiave, "", "", ""
     ]);
     ultimeDest[p.mezzo.targa] = p.reg.arrivo;
@@ -651,7 +697,7 @@ function imparaSinonimi_(pronti, ana) {
   pronti.forEach(p => {
     agg("AUTISTA", p.raw[6], p.autista);
     agg("CAMION", p.raw[7], p.mezzo.modello);
-    agg("RIMORCHIO", p.raw[8], p.rim.nome);
+    if (p.rim) agg("RIMORCHIO", p.raw[8], p.rim.nome);
     agg("TRATTA", p.raw[9], p.reg.chiave);
   });
 
