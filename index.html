@@ -83,6 +83,11 @@ select:focus, input:focus { border-color: var(--orange); outline: none; backgrou
   border-left: 3px solid var(--orange); border-radius: 6px; color: #7c2d12; }
 hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 .hint { font-size: 12px; color: var(--light); margin-top: 5px; }
+.btn-indietro { position: sticky; top: 8px; z-index: 5; display: inline-flex; align-items: center; gap: 6px;
+  margin: -6px 0 12px; padding: 9px 14px; border: 1px solid var(--border); border-radius: 999px; background: #fff;
+  color: var(--blue); font-weight: 700; font-size: 13px; font-family: inherit; cursor: pointer;
+  box-shadow: 0 4px 12px rgba(11,25,44,.12); }
+.btn-indietro:hover { border-color: var(--orange); color: var(--orange); }
 .ctrl-link { cursor: pointer; transition: box-shadow .15s; }
 .ctrl-link:hover { box-shadow: 0 4px 14px rgba(11,25,44,.12); }
 .ctrl-vai { color: var(--orange); font-weight: 700; margin-top: 3px; }
@@ -212,6 +217,7 @@ table.mvt { border-collapse: collapse; width: 100%; font-size: 12.5px; }
   </div>
 
   <div id="p-mod" class="hidden">
+    <button id="mv-indietro" class="btn-indietro hidden" onclick="tornaAnomalie()">← Torna alle anomalie</button>
     <p class="sub">Correggi i viaggi, anche quelli chiusi, senza toccare il foglio</p>
     <div class="mv-filtri">
       <div class="grp"><label>Chi modifica</label><input type="text" id="mv-chi" placeholder="Il tuo nome" onchange="mvSalvaChi(this.value.trim())"></div>
@@ -508,6 +514,7 @@ function esci() {
 
 // ---------- admin ----------
 function tab(quale) {
+  if (quale !== "mod") MV_DA_CONTROLLI = false;
   ["ass", "dash", "res", "mod"].forEach(k => {
     $("t-" + k).classList.toggle("on", k === quale);
     $("p-" + k).classList.toggle("hidden", k !== quale);
@@ -1230,13 +1237,23 @@ function apriModifica() {
   $("mv-camion").innerHTML = "<option value=''>Tutti i camion</option>" + opzioni(DATI.mezzi, $("mv-camion").value);
   $("mv-autista").innerHTML = "<option value=''>Tutti gli autisti</option>" + opzioni(DATI.autisti, $("mv-autista").value);
   if (!$("mv-chi").value) $("mv-chi").value = mvChi();
+  $("mv-indietro").classList.toggle("hidden", !MV_DA_CONTROLLI);
   if (!MV.length || MV_DA_APRIRE) cercaViaggi();
+}
+
+// freccia "Torna alle anomalie": la segnalazione appena corretta sparisce perché la lista si ricarica
+let MV_DA_CONTROLLI = false;
+function tornaAnomalie() {
+  VISTA_CTRL = "anomalie";
+  tab("res");
+  window.scrollTo(0, 0);
 }
 
 // dalla scheda Controlli: apre quel viaggio nella scheda Modifica
 let MV_DA_APRIRE = null;
 function vaiAModifica(idEnc, giorno) {
   MV_DA_APRIRE = decodeURIComponent(idEnc);
+  MV_DA_CONTROLLI = true;
   $("mv-dal").value = giorno; $("mv-al").value = giorno;
   $("mv-camion").value = ""; $("mv-autista").value = ""; $("mv-stato").value = ""; $("mv-testo").value = "";
   tab("mod");
