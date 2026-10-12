@@ -94,7 +94,12 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 .mv-avviso.ok { background: #15803d; color: #fff; opacity: 1; }
 .mv-avviso.err { background: #b91c1c; color: #fff; opacity: 1; }
 .mv-avviso.nascosto { opacity: 0; pointer-events: none; }
-.ctrl-link { cursor: pointer; transition: box-shadow .15s; }
+.mv-contesto { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 10px 12px; font-size: 13px;
+  color: #7c2d12; margin-bottom: 10px; line-height: 1.45; }
+.mv-contesto a { color: var(--orange); font-weight: 700; }
+.mvt tr.target td { background: #fff7ed; }
+.mvt tr.target td:first-child { box-shadow: inset 4px 0 0 var(--orange); }
+ cursor: pointer; transition: box-shadow .15s; }
 .ctrl-link:hover { box-shadow: 0 4px 14px rgba(11,25,44,.12); }
 .ctrl-vai { color: var(--orange); font-weight: 700; margin-top: 3px; }
 #v-admin.largo { max-width: 1600px; }
@@ -1276,19 +1281,28 @@ function apriDaControlli() {
   setTimeout(() => {
     const el = document.querySelector(".mvt tr.ed") || $("mvc-" + id);
     if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    // sul computer porto in vista le colonne dei km (la tabella e' piu' larga dello schermo)
+    const wrap = document.querySelector(".mvt-wrap");
+    if (wrap) {
+      const th = wrap.querySelectorAll("th");
+      if (th[8]) wrap.scrollLeft = Math.max(0, th[8].offsetLeft - th[0].offsetWidth - th[6].offsetWidth - th[7].offsetWidth - 10);
+    }
   }, 50);
 }
 
 async function cercaViaggi() {
   MV_APERTO = null;
+  MV_CONTESTO = MV_DA_APRIRE;      // arrivo da una segnalazione: mostro il viaggio con i 2 prima e i 2 dopo
+  MV_EVID = {};
   $("mv-lista").innerHTML = "<p style='text-align:center;color:var(--light);padding:18px'>Ricerca…</p>";
   nascondi("mv-msg");
   try {
-    const r = await api("cercaViaggi", {
+    const r = await api("cercaViaggi", MV_CONTESTO ? { contesto: MV_CONTESTO } : {
       dal: $("mv-dal").value, al: $("mv-al").value, targa: $("mv-camion").value,
       autista: $("mv-autista").value, stato: $("mv-stato").value, testo: $("mv-testo").value.trim()
     });
     MV = r.viaggi || [];
+    if (MV_CONTESTO) calcolaEvidenzeMV();
     disegnaMV(r);
     apriDaControlli();
   } catch (e) {
@@ -1300,29 +1314,82 @@ async function cercaViaggi() {
 function euro(n) { return n == null || n === "" ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"; }
 function dataIt(iso) { return iso ? iso.split("-").reverse().join("/") : "—"; }
 
+function intestazioneMV(info) {
+  if (MV_CONTESTO && info && info.targa) {
+    return "<div class='mv-contesto'>🔎 Viaggio da correggere (evidenziato) con i <b>2 viaggi prima e i 2 dopo</b> di " +
+      escH(info.nomeCamion) + " " + escH(info.targa) + ", in ordine di km. In rosso i km che non tornano." +
+      " <a href='#' onclick=\"event.preventDefault();MV_CONTESTO=null;MV_EVID={};cercaViaggi()\">Mostra tutti i viaggi del giorno</a></div>";
+  }
+  return "<div class='hint' style='margin-bottom:8px'>" + (info && info.troppi ? "Mostro i primi 300 di " + info.totale + ": restringi i filtri." : MV.length + " viaggi") +
+    (mvLargo() ? " · clicca una riga per modificarla" : "") + "</div>";
+}
+
+// km sbagliati: confronto ogni viaggio con quello prima (stesso camion, in ordine)
+let MV_CONTESTO = null, MV_EVID = {};
+function calcolaEvidenzeMV() {
+  MV_EVID = {};
+  const segna = (id, campo, perche) => { (MV_EVID[id] = MV_EVID[id] || {})[campo] = perche; };
+  const kmFmt = n => Number(n).toLocaleString("it-IT");
+  const L = MV;
+  const salto = i => (L[i].kmP !== "" && L[i - 1].kmA !== "") ? L[i].kmP - L[i - 1].kmA : null;
+  const fuori = {};
+  for (let i = 1; i < L.length - 1; i++) {
+    const g1 = salto(i), g2 = salto(i + 1);
+    if (g1 !== null && g2 !== null && Math.abs(g1) > 500 && Math.abs(g2) > 500 && Math.sign(g1) !== Math.sign(g2)) {
+      fuori[i] = true;
+      segna(L[i].id, "kmP", "Fuori sequenza: i viaggi prima e dopo sono intorno a " + kmFmt(L[i - 1].kmA));
+      segna(L[i].id, "kmA", "Fuori sequenza: i viaggi prima e dopo sono intorno a " + kmFmt(L[i - 1].kmA));
+    }
+  }
+  for (let i = 1; i < L.length; i++) {
+    if (fuori[i] || fuori[i - 1]) continue;
+    const g = salto(i);
+    if (g === null) continue;
+    if (g < -5) {
+      segna(L[i - 1].id, "kmA", "Arrivo a " + kmFmt(L[i - 1].kmA) + " ma il viaggio dopo parte da " + kmFmt(L[i].kmP) + " (" + kmFmt(-g) + " km sovrapposti)");
+      segna(L[i].id, "kmP", "Parte da " + kmFmt(L[i].kmP) + " ma il viaggio prima era arrivato a " + kmFmt(L[i - 1].kmA) + " (" + kmFmt(-g) + " km sovrapposti)");
+    } else if (g > 500) {
+      segna(L[i - 1].id, "kmA", kmFmt(g) + " km non registrati prima del viaggio dopo");
+      segna(L[i].id, "kmP", kmFmt(g) + " km non registrati dopo il viaggio prima");
+    }
+  }
+  L.forEach(v => {
+    if (v.km != null && v.km > 900) segna(v.id, "km", "Più di 900 km in un viaggio");
+    if (v.km != null && v.km <= 0 && v.stato === "Completato" && !/notte/i.test(v.tratta)) segna(v.id, "km", "Viaggio con 0 km");
+  });
+}
+function evidMV(id, campo) { return MV_EVID[id] && MV_EVID[id][campo]; }
+function stileEvidMV(id, campo) {
+  const e = evidMV(id, campo);
+  return e ? " style='background:#fee2e2;color:#b91c1c;font-weight:800' title=\"" + escH(e) + "\"" : "";
+}
+
 function disegnaMV(info) {
   if (info) MV_INFO = info; else info = MV_INFO;
   if (MV.length && mvLargo()) {
-    $("mv-lista").innerHTML = "<div class='hint' style='margin-bottom:8px'>" + (info && info.troppi ? "Mostro i primi 300 di " + info.totale + ": restringi i filtri." : MV.length + " viaggi") +
-      " · clicca una riga per modificarla</div>" + tabellaMV();
+    $("mv-lista").innerHTML = intestazioneMV(info) + tabellaMV();
     if (MV_APERTO) segnaMV(MV_APERTO);
     return;
   }
   if (!MV.length) { $("mv-lista").innerHTML = "<div class='viaggio' style='text-align:center;color:var(--light)'>Nessun viaggio trovato.</div>"; return; }
   const col = { "Completato": "#16a34a", "In Corso": "#0284c7", "Assegnato": "#ea580c" };
-  let html = "<div class='hint' style='margin-bottom:8px'>" + (info && info.troppi ? "Mostro i primi 300 di " + info.totale + ": restringi i filtri." : MV.length + " viaggi") + "</div>";
+  let html = intestazioneMV(info);
   html += MV.map(cardMV).join("");
   $("mv-lista").innerHTML = html;
 }
 
 function cardMV(v) {
   const col = { "Completato": "#16a34a", "In Corso": "#0284c7", "Assegnato": "#ea580c" };
-  return "<div id='mvc-" + v.id + "' style='background:#fff;border:1px solid var(--border);border-left:5px solid " + (col[v.stato] || "#94a3b8") +
+  const evid = MV_EVID[v.id] ? Object.keys(MV_EVID[v.id]).map(k => MV_EVID[v.id][k]) : [];
+  return "<div id='mvc-" + v.id + "' style='background:" + (v.id === MV_CONTESTO ? "#fff7ed" : "#fff") + ";border:" + (v.id === MV_CONTESTO ? "2px solid var(--orange)" : "1px solid var(--border)") + ";border-left:5px solid " + (col[v.stato] || "#94a3b8") +
     ";border-radius:10px;margin-bottom:8px'>" +
       "<div onclick=\"apriViaggioMV('" + v.id + "')\" style='padding:11px;cursor:pointer'>" +
         "<div style='display:flex;gap:8px'><div style='flex:1;min-width:0'>" +
           "<div style='font-size:13px;font-weight:700;color:var(--blue)'>" + dataIt(v.data) + " · " + escH(v.tratta || "(senza tratta)") + "</div>" +
-          "<div style='font-size:12px;color:var(--light)'>" + escH(v.autista) + " · " + escH(v.nomeCamion) + " " + escH(v.targa) + "</div></div>" +
+          "<div style='font-size:12px;color:var(--light)'>" + escH(v.autista) + " · " + escH(v.nomeCamion) + " " + escH(v.targa) + "</div>" +
+          ((v.kmP !== "" || v.kmA !== "") && MV_CONTESTO ? "<div style='font-size:12px;margin-top:3px'>km <span" + stileEvidMV(v.id, "kmP") + ">" + (v.kmP === "" ? "—" : Number(v.kmP).toLocaleString("it-IT")) +
+            "</span> → <span" + stileEvidMV(v.id, "kmA") + ">" + (v.kmA === "" ? "—" : Number(v.kmA).toLocaleString("it-IT")) + "</span></div>" : "") +
+          (evid.length ? "<div style='font-size:11px;color:#b91c1c;font-weight:700;margin-top:2px'>⚠️ " + escH(evid[0]) + "</div>" : "") + "</div>" +
           "<div style='text-align:right;font-size:12px'><div style='font-weight:700;color:var(--blue)'>" + (v.km != null ? v.km.toLocaleString("it-IT") + " km" : "— km") + "</div>" +
           "<div style='color:var(--light)'>" + euro(v.ricavoTotale) + "</div></div></div>" +
       "</div>" +
@@ -1380,7 +1447,9 @@ function campoMV(etichetta, html, nota) {
 
 function moduloMV(v) {
   const id = v.id, inp = (k, tipo, val, extra) =>
-    "<input type='" + tipo + "' id='mv-" + k + "-" + id + "' value=\"" + escH(val == null ? "" : val) + "\" " + (extra || "") + " oninput=\"segnaMV('" + id + "')\">";
+    "<input type='" + tipo + "' id='mv-" + k + "-" + id + "' value=\"" + escH(val == null ? "" : val) + "\" " +
+    (evidMV(id, k) ? "style='border:2px solid #dc2626;background:#fff1f2' " : "") + (extra || "") + " oninput=\"segnaMV('" + id + "')\">" +
+    (evidMV(id, k) ? "<div class='hint' style='color:#b91c1c;font-weight:700'>⚠️ " + escH(evidMV(id, k)) + "</div>" : "");
   const sel = (k, opts) => "<select id='mv-" + k + "-" + id + "' onchange=\"segnaMV('" + id + "')\">" + opts + "</select>";
   const conVuoto = (lista, scelto, vuoto) => "<option value=''>" + vuoto + "</option>" + opzioni(lista, scelto);
   // un valore che non e' piu' negli elenchi resta visibile, cosi' non si perde
@@ -1499,7 +1568,11 @@ async function salvaViaggioMV(id) {
   try {
     const r = await api("salvaViaggio", { id: id, chi: chi, prima: c.prima, dopo: c.dopo });
     if (r.viaggio) { const i = MV.findIndex(x => x.id === id); if (i >= 0) MV[i] = r.viaggio; }
-    senzaSaltiMV(id, () => { MV_APERTO = null; ridisegnaUnoMV(id); });
+    senzaSaltiMV(id, () => {
+      MV_APERTO = null;
+      if (MV_CONTESTO) { calcolaEvidenzeMV(); MV.forEach(x => ridisegnaUnoMV(x.id)); }
+      else ridisegnaUnoMV(id);
+    });
     avvisoMV("✅ " + r.msg, "ok");
   } catch (e) {
     b.disabled = false; segnaMV(id);
@@ -1551,7 +1624,7 @@ function rigaVistaMV(v) {
   const n = x => (x === "" || x == null) ? "" : Number(x).toLocaleString("it-IT");
   let h = "";
     const ore = v.ore === "" ? "" : (Math.floor(v.ore) + ":" + String(Math.round((v.ore - Math.floor(v.ore)) * 60)).padStart(2, "0"));
-    h += "<tr class='r' id='mvr-" + v.id + "' onclick=\"apriViaggioMV('" + v.id + "')\" title='Clicca per modificare'>" +
+    h += "<tr class='r" + (v.id === MV_CONTESTO ? " target" : "") + "' id='mvr-" + v.id + "' onclick=\"apriViaggioMV('" + v.id + "')\" title='Clicca per modificare'>" +
       "<td>" + dataIt(v.data) + "</td>" +
       "<td><span class='mvt-stato' style='color:" + (col[v.stato] || "#64748b") + "'>● " + escH(v.stato || "—") + "</span></td>" +
       "<td><b>" + escH(v.tratta || "—") + "</b></td>" +
@@ -1559,8 +1632,8 @@ function rigaVistaMV(v) {
       "<td>" + escH(v.nomeCamion) + (v.nomeCamion !== v.targa ? " <span class='mvt-sub'>" + escH(v.targa) + "</span>" : "") + "</td>" +
       "<td>" + escH(v.rimorchio) + "</td>" +
       "<td>" + escH(v.oraInizio) + "</td><td>" + escH(v.oraFine) + "</td>" +
-      "<td class='num'>" + n(v.kmP) + "</td><td class='num'>" + n(v.kmA) + "</td>" +
-      "<td class='num'><b" + ((v.km != null && (v.km < 0 || v.km > 900)) ? " style='color:#dc2626'" : "") + ">" + n(v.km) + "</b></td>" +
+      "<td class='num'" + stileEvidMV(v.id, "kmP") + ">" + n(v.kmP) + "</td><td class='num'" + stileEvidMV(v.id, "kmA") + ">" + n(v.kmA) + "</td>" +
+      "<td class='num'" + stileEvidMV(v.id, "km") + "><b" + ((v.km != null && (v.km < 0 || v.km > 900)) ? " style='color:#dc2626'" : "") + ">" + n(v.km) + "</b></td>" +
       "<td class='num'>" + n(v.nViaggi) + "</td>" +
       "<td class='num'" + (Number(v.ton) > 60 ? " style='color:#dc2626' title='Sembrano kg'" : "") + ">" + n(v.ton) + "</td>" +
       "<td class='num'>" + ore + "</td>" +
@@ -1576,7 +1649,8 @@ function rigaVistaMV(v) {
 function rigaEditMV(v) {
   const id = v.id;
   const inp = (k, tipo, val, w, extra) => "<input type='" + tipo + "' id='mv-" + k + "-" + id + "' value=\"" + escH(val == null ? "" : val) +
-    "\" style='width:" + w + "px' " + (extra || "") + " oninput=\"segnaMV('" + id + "')\">";
+    "\" style='width:" + w + "px" + (evidMV(id, k) ? ";border:2px solid #dc2626;background:#fff1f2" : "") + "' " +
+    (evidMV(id, k) ? "title=\"" + escH(evidMV(id, k)) + "\" " : "") + (extra || "") + " oninput=\"segnaMV('" + id + "')\">";
   const sel = (k, opts, w) => "<select id='mv-" + k + "-" + id + "' style='width:" + w + "px' onchange=\"segnaMV('" + id + "')\">" + opts + "</select>";
   const extraOpt = (val, lista) => (val && !(lista || []).some(x => (typeof x === "string" ? x : x.targa) === val))
     ? "<option value=\"" + escH(val) + "\" selected>" + escH(val) + " (non in elenco)</option>" : "";
@@ -1593,7 +1667,7 @@ function rigaEditMV(v) {
     "<td>" + inp("oraFine", "text", v.oraFine, 62, "placeholder='17:30'") + "</td>" +
     "<td>" + inp("kmP", "number", v.kmP, 95, "step='0.1'") + "</td>" +
     "<td>" + inp("kmA", "number", v.kmA, 95, "step='0.1'") + "</td>" +
-    "<td class='num'><span id='mv-kmcalc-" + id + "'></span></td>" +
+    "<td class='num'" + stileEvidMV(id, "km") + "><span id='mv-kmcalc-" + id + "'></span></td>" +
     "<td>" + inp("nViaggi", "number", v.nViaggi, 55, "min='1' step='1'") + "</td>" +
     "<td class='rel'>" + inp("ton", "number", v.ton, 75, "step='0.01'") + "<div id='mv-tonhint-" + id + "' class='mvt-avviso'></div></td>" +
     "<td style='white-space:nowrap'><select id='mv-oreh-" + id + "' style='width:62px' onchange=\"segnaMV('" + id + "')\">" + opzioniOreSel(v.ore === "" ? "" : hh) + "</select>" +

@@ -978,6 +978,26 @@ async function azCercaViaggi(req) {
   const al = req.al ? Math.floor(dataSerial(req.al)) : oggi;
   const testo = String(req.testo || "").trim().toLowerCase();
 
+  // dalla segnalazione: il viaggio + i 2 prima e i 2 dopo dello stesso camion, in ordine di km
+  if (req.contesto) {
+    let idx = -1;
+    righe.forEach((r, i) => { if (String(r[0]) === String(req.contesto)) idx = i; });
+    if (idx < 0) throw new Error("Viaggio non trovato: forse è stato eliminato.");
+    const targa = String(righe[idx][4] || "").trim();
+    const stessi = [];
+    righe.forEach((r, i) => {
+      if (!r[0] || String(r[4] || "").trim() !== targa) return;
+      const s = serialC(r[1]);
+      if (s == null) return;
+      stessi.push({ i: i, g: Math.floor(s), kp: numC(r[5]) });
+    });
+    stessi.sort((a, b) => a.g - b.g || ((a.kp || 1e12) - (b.kp || 1e12)) || a.i - b.i);
+    const pos = stessi.findIndex(x => x.i === idx);
+    const scelti = stessi.slice(Math.max(0, pos - 2), pos + 3);
+    return { viaggi: scelti.map(x => viaggioDaRiga(righe[x.i], x.i + 2, b)), contesto: req.contesto, targa: targa,
+             nomeCamion: b.mezzi[targa] || targa, totale: scelti.length };
+  }
+
   const out = [];
   righe.forEach((r, i) => {
     if (!r[0]) return;
