@@ -1272,14 +1272,19 @@ function vaiAModifica(idEnc, giorno) {
   tab("mod");
 }
 
+let MV_NON_APRIRE = false;   // dopo un cambio di camion: mostro il contesto senza riaprire il modulo
 function apriDaControlli() {
   const id = MV_DA_APRIRE;
   MV_DA_APRIRE = null;
+  const soloMostra = MV_NON_APRIRE;
+  MV_NON_APRIRE = false;
   if (!id || !MV.find(x => x.id === id)) return;
-  if (mvLargo()) { MV_APERTO = id; disegnaMV(); }
-  else apriViaggioMV(id);
+  if (!soloMostra) {
+    if (mvLargo()) { MV_APERTO = id; disegnaMV(); }
+    else apriViaggioMV(id);
+  }
   setTimeout(() => {
-    const el = document.querySelector(".mvt tr.ed") || $("mvc-" + id);
+    const el = document.querySelector(".mvt tr.ed") || $("mvr-" + id) || $("mvc-" + id);
     if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
     // sul computer porto in vista le colonne dei km (la tabella e' piu' larga dello schermo)
     const wrap = document.querySelector(".mvt-wrap");
@@ -1568,6 +1573,15 @@ async function salvaViaggioMV(id) {
   try {
     const r = await api("salvaViaggio", { id: id, chi: chi, prima: c.prima, dopo: c.dopo });
     if (r.viaggio) { const i = MV.findIndex(x => x.id === id); if (i >= 0) MV[i] = r.viaggio; }
+    // camion cambiato mentre guardo il contesto: ricarico i 2 prima / 2 dopo del camion NUOVO
+    if (MV_CONTESTO && ("targa" in c.dopo)) {
+      MV_DA_APRIRE = id; MV_NON_APRIRE = true;
+      await cercaViaggi();
+      const v = MV.find(x => x.id === id);
+      avvisoMV("✅ " + r.msg + " Ora vedi i viaggi di " + (v ? v.nomeCamion + " " + v.targa : "questo camion") +
+        (MV_EVID[id] ? ": i km non tornano neanche qui." : ": i km tornano."), MV_EVID[id] ? "err" : "ok");
+      return;
+    }
     senzaSaltiMV(id, () => {
       MV_APERTO = null;
       if (MV_CONTESTO) { calcolaEvidenzeMV(); MV.forEach(x => ridisegnaUnoMV(x.id)); }
