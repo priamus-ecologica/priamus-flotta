@@ -737,18 +737,11 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi, extra)
     const t = tariffe[v.tratta];
     if (!t) return;
     const tOra = tariffaOra(v);
-    const nv = Math.max(1, v.nViaggi || 1);
     if (tOra > 0) {
       if (!v.ore || v.ore <= 0) {
         segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-ORE0|" + v.id,
           titolo: "Lavoro a ore senza ore · " + nome(v.targa),
           dettaglio: descV(v) + ". La tratta si paga " + euro(tOra) + " l'ora ma le ore sono vuote: il ricavo a ore è 0.",
-          foglio: "REGISTRO_VIAGGI", riga: v.riga });
-      } else if (notte(v) && v.ore < 8) {
-        segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-NOTTE8|" + v.id,
-          titolo: "Notturno sotto le 8 ore · " + nome(v.targa),
-          dettaglio: descV(v) + ". Ore " + num1(v.ore) + ": il notturno si fattura minimo 8 ore. Se è giusto 8, mancano " +
-            euro((8 - v.ore) * tOra) + " di ricavo.",
           foglio: "REGISTRO_VIAGGI", riga: v.riga });
       } else if (v.ore > 14) {
         segnala({ gruppo: "Viaggi", gravita: "media", chiave: "V-ORE14|" + v.id,
@@ -769,15 +762,6 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi, extra)
         titolo: "Tonnellate scritte in kg · " + nome(v.targa),
         dettaglio: descV(v) + ". " + num1(v.ton) + " t = " + euro(v.ton * t.ton) + " di ricavo: sembrano kg (= " +
           num1(v.ton / 1000) + " t).",
-        foglio: "REGISTRO_VIAGGI", riga: v.riga });
-    } else if (t.ton > 0 && t.viaggio > 0 && v.ton / nv > 45) {
-      // tratte pagate a tonnellata + a viaggio (es. Saline): un viaggio porta al massimo 35-40 t
-      const giusti = Math.ceil(v.ton / 38);
-      segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-NVIAGGI|" + v.id,
-        titolo: "Numero viaggi troppo basso per le tonnellate · " + nome(v.targa),
-        dettaglio: descV(v) + ". " + num1(v.ton) + " t in " + (v.nViaggi || 0) + (v.nViaggi === 1 ? " viaggio" : " viaggi") +
-          (v.nViaggi ? " = " + num1(v.ton / nv) + " t a viaggio" : "") + ". Dovrebbero essere almeno " + giusti +
-          " viaggi: mancano circa " + euro((giusti - (v.nViaggi || 0)) * t.viaggio) + " (" + euro(t.viaggio) + " a viaggio).",
         foglio: "REGISTRO_VIAGGI", riga: v.riga });
     }
   });
@@ -900,40 +884,6 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi, extra)
     });
   }
 
-  // giornata del camion in perdita (stessa regola del REGISTRO_MESE):
-  //  lun-ven: 320 per il lavoro di giorno; notturno da solo 320, notturno con altri lavori 180
-  //  sab-dom: 100 per ogni gruppo (giorno / notte); + km x €/km
-  const par = extra.parametri;
-  if (par) {
-    const gg = {};
-    viaggi.forEach(v => {
-      if (!nel(v.giorno) || v.stato !== "Completato" || !v.targa) return;
-      const k = v.giorno + "|" + v.targa;
-      const x = gg[k] = gg[k] || { giorno: v.giorno, targa: v.targa, ric: 0, km: 0, giornoN: false, notteN: false, l: [] };
-      x.ric += v.ricavo || 0; x.km += Math.max(0, v.km || 0); x.l.push(v);
-      if (notte(v)) x.notteN = true; else x.giornoN = true;
-    });
-    Object.keys(gg).forEach(k => {
-      const x = gg[k];
-      const dow = new Date((x.giorno - 25569) * 86400000).getUTCDay();
-      const weekend = dow === 0 || dow === 6;
-      let fisso;
-      if (weekend) fisso = par.weekend * ((x.giornoN ? 1 : 0) + (x.notteN ? 1 : 0));
-      else fisso = (x.giornoN ? par.giorno : 0) + (x.notteN ? (x.giornoN ? par.notte : par.giorno) : 0);
-      const costo = fisso + x.km * par.km;
-      const margine = x.ric - costo;
-      if (margine >= -20) return;          // pochi euro sotto zero: non è un errore
-      // apro il viaggio con il ricavo più basso: è il più probabile da correggere
-      const v = x.l.slice().sort((a, b) => (a.ricavo || 0) - (b.ricavo || 0))[0];
-      segnala({ gruppo: "Camion", gravita: "media", chiave: "C-PERDITA|" + x.targa + "|" + x.giorno,
-        titolo: "Giornata in perdita · " + nome(x.targa),
-        dettaglio: dataC(x.giorno) + ": ricavi " + euro(x.ric) + ", costi stimati " + euro(costo) + " (fisso " + euro(fisso) +
-          " + " + kmC(x.km) + " km) = " + euro(margine) + ". Viaggi: " +
-          x.l.map(y => y.tratta + " " + euro(y.ricavo || 0)).join(", ") + ". Manca un viaggio, le ore o le tonnellate?",
-        foglio: "REGISTRO_VIAGGI", riga: v.riga, viaggio: v.id, giorno: serialToISO(v.giorno) });
-    });
-  }
-
   // per le segnalazioni sui viaggi: quale viaggio aprire nella scheda Modifica
   const perId = {};
   viaggi.forEach(v => { perId[v.id] = v; });
@@ -963,7 +913,7 @@ async function azControlli(req) {
     spreadsheetId: SHEET_ID, ranges: ranges,
     valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "SERIAL_NUMBER"
   });
-  const fissi = ["REGISTRO_VIAGGI!A2:AD" + (FINESTRA_MAX + 1), "REGISTRO_RIFORNIMENTI!A2:G5000", "PARAMETRI!B2:B9"];
+  const fissi = ["REGISTRO_VIAGGI!A2:AD" + (FINESTRA_MAX + 1), "REGISTRO_RIFORNIMENTI!A2:G5000"];
   // se il foglio CONTROLLI_IGNORATI non c'è ancora, leggo solo gli altri
   const risp = await leggiVari(fissi.concat(["CONTROLLI_IGNORATI!A2:A5000"])).catch(async e => {
     const r2 = await leggiVari(fissi);
@@ -972,15 +922,10 @@ async function azControlli(req) {
   });
   const blocchi = (risp.data.valueRanges || []).map(v => v.values || []);
   const ignorati = {};
-  (blocchi[3] || []).forEach(r => { if (r[0]) ignorati[String(r[0])] = true; });
-
-  // PARAMETRI: B2 costo giornaliero, B3 €/km, B6 notturno con altri lavori, B8 sabato e domenica
-  const P = (blocchi[2] || []).map(r => numC(r && r[0]));
-  const pv = (i, def) => (P[i] != null && !isNaN(P[i]) ? P[i] : def);
-  const parametri = { giorno: pv(0, 320), km: pv(1, 0.9), notte: pv(4, 180), weekend: pv(6, 100) };
+  (blocchi[2] || []).forEach(r => { if (r[0]) ignorati[String(r[0])] = true; });
 
   const ris = calcolaControlli(blocchi[0], blocchi[1], b.mezzi, ignorati, dal, al, oggi,
-    { tariffe: b.tariffe, categoria: b.categoria, parametri: parametri });
+    { tariffe: b.tariffe, categoria: b.categoria });
   ris.dal = serialToISO(dal);
   ris.al = serialToISO(al);
   return ris;
