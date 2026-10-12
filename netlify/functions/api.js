@@ -113,7 +113,7 @@ async function base() {
       "AUTISTI!A2:C200",
       "ANAGRAFICA_MEZZI!A2:E200",
       "ANAGRAFICA_RIMORCHI!A2:B200",
-      "REGOLE_VIAGGI!A2:C300"
+      "REGOLE_VIAGGI!A2:K300"
     ]
   });
   const blocchi = (risp.data.valueRanges || []).map(v => v.values || []);
@@ -126,12 +126,13 @@ async function base() {
     if (nome) { autisti.push(nome); pin[nome] = String(r[2] || "").trim(); }
   });
 
-  const mezzi = {};
+  const mezzi = {}, categoria = {};
   const rigaMezzo = {};   // targa -> riga nel foglio ANAGRAFICA_MEZZI
   vM.forEach((r, i) => {
     const targa = String(r[1] || "").trim();
     if (targa) {
       mezzi[targa] = String(r[3] || "").trim() || targa;
+      categoria[targa] = String(r[2] || "").trim();
       rigaMezzo[targa] = i + 2;          // +2 perche' partiamo dalla riga 2
     }
   });
@@ -142,9 +143,10 @@ async function base() {
     if (targa) rimorchi[targa] = String(r[1] || "").trim() || targa;
   });
 
-  const regole = [], chiavePerArrivo = {};
+  const regole = [], chiavePerArrivo = {}, tariffe = {};
   vReg.forEach(r => {
     const chiave = String(r[0] || "").trim();
+    if (chiave) tariffe[chiave] = { ton: numC(r[5]) || 0, ore: numC(r[6]) || 0, viaggio: numC(r[7]) || 0, ore4: numC(r[10]) || 0 };
     const arrivo = String(r[2] || "").trim();
     if (chiave) {
       regole.push({ chiave, partenza: String(r[1] || "").trim(), arrivo });
@@ -152,7 +154,7 @@ async function base() {
     }
   });
 
-  _base = { autisti, pin, mezzi, rimorchi, regole, chiavePerArrivo, rigaMezzo };
+  _base = { autisti, pin, mezzi, rimorchi, regole, chiavePerArrivo, rigaMezzo, tariffe, categoria };
   _baseTime = ora;
   return _base;
 }
@@ -582,7 +584,9 @@ async function azModifica(req) {
 // Numero da cella del foglio: numero vero, "84020,5", "194500", vuoto
 function numC(v) {
   if (typeof v === "number") return v;
-  const t = String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".");
+  let t = String(v == null ? "" : v).replace(/[^\d,.\-]/g, "");
+  if (t.indexOf(",") >= 0 && t.indexOf(".") >= 0) t = t.replace(/\./g, "");   // 1.200,50
+  t = t.replace(",", ".");
   if (t === "") return null;
   const n = Number(t);
   return isNaN(n) ? null : n;
@@ -619,7 +623,8 @@ function oggiSerialRoma() {
  * ignorati: { chiave: true }
  * dal, al: numeri seriali (giorno intero, compresi)
  */
-function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi) {
+function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi, extra) {
+  extra = extra || {};
   const out = [];
   const nel = s => s != null && Math.floor(s) >= dal && Math.floor(s) <= al;
   const nome = t => (mezzi[t] ? mezzi[t] + " · " : "") + t;
@@ -636,7 +641,8 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi) {
       autista: String(r[2] || ""), targa: String(r[4] || "").trim(),
       kmP: numC(r[5]), kmA: numC(r[6]), km: numC(r[7]),
       tratta: String(r[18] || r[9] || ""), stato: String(r[15] || ""),
-      ricavo: numC(r[29])
+      ricavo: numC(r[29]),
+      ton: numC(r[11]), ore: numC(r[12]), nViaggi: numC(r[20])
     });
   });
   const descV = v => dataC(v.giorno) + " · " + v.autista + " · " + v.tratta;
@@ -714,6 +720,85 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi) {
           foglio: "REGISTRO_VIAGGI", riga: b.riga });
       }
     }
+  });
+
+  // ---------------- RICAVI (ore, tonnellate, autisti) ----------------
+  const tariffe = extra.tariffe || {}, categoria = extra.categoria || {};
+  const euro = x => Math.round(x).toLocaleString("it-IT") + " €";
+  const num1 = x => (Math.round(x * 100) / 100).toLocaleString("it-IT");
+  // tariffa oraria applicata: quella dei 4 assi se il camion è un 4 assi e la tratta ce l'ha
+  const tariffaOra = v => {
+    const t = tariffe[v.tratta];
+    if (!t) return 0;
+    return (/4\s*assi/i.test(categoria[v.targa] || "") && t.ore4 > 0) ? t.ore4 : t.ore;
+  };
+  viaggi.forEach(v => {
+    if (!nel(v.giorno) || v.stato !== "Completato") return;
+    const t = tariffe[v.tratta];
+    if (!t) return;
+    const tOra = tariffaOra(v);
+    const nv = Math.max(1, v.nViaggi || 1);
+    if (tOra > 0) {
+      if (!v.ore || v.ore <= 0) {
+        segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-ORE0|" + v.id,
+          titolo: "Lavoro a ore senza ore · " + nome(v.targa),
+          dettaglio: descV(v) + ". La tratta si paga " + euro(tOra) + " l'ora ma le ore sono vuote: il ricavo a ore è 0.",
+          foglio: "REGISTRO_VIAGGI", riga: v.riga });
+      } else if (notte(v) && v.ore < 8) {
+        segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-NOTTE8|" + v.id,
+          titolo: "Notturno sotto le 8 ore · " + nome(v.targa),
+          dettaglio: descV(v) + ". Ore " + num1(v.ore) + ": il notturno si fattura minimo 8 ore. Se è giusto 8, mancano " +
+            euro((8 - v.ore) * tOra) + " di ricavo.",
+          foglio: "REGISTRO_VIAGGI", riga: v.riga });
+      } else if (v.ore > 14) {
+        segnala({ gruppo: "Viaggi", gravita: "media", chiave: "V-ORE14|" + v.id,
+          titolo: "Troppe ore in un viaggio · " + nome(v.targa),
+          dettaglio: descV(v) + ". Ore " + num1(v.ore) + " (" + euro(v.ore * tOra) + "): controlla se è un errore di battitura.",
+          foglio: "REGISTRO_VIAGGI", riga: v.riga });
+      }
+    }
+    if (t.ton > 0 && (!v.ton || v.ton <= 0)) {
+      segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-TON0|" + v.id,
+        titolo: "Lavoro a tonnellate senza tonnellate · " + nome(v.targa),
+        dettaglio: descV(v) + ". La tratta si paga " + num1(t.ton) + " € a tonnellata ma le tonnellate sono vuote.",
+        foglio: "REGISTRO_VIAGGI", riga: v.riga });
+    }
+    // (sulle tratte pagate a viaggio le tonnellate non cambiano il ricavo: lì non controllo)
+    if (t.ton > 0 && v.ton > 1000) {
+      segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-TONKG|" + v.id,
+        titolo: "Tonnellate scritte in kg · " + nome(v.targa),
+        dettaglio: descV(v) + ". " + num1(v.ton) + " t = " + euro(v.ton * t.ton) + " di ricavo: sembrano kg (= " +
+          num1(v.ton / 1000) + " t).",
+        foglio: "REGISTRO_VIAGGI", riga: v.riga });
+    } else if (t.ton > 0 && t.viaggio > 0 && v.ton / nv > 45) {
+      // tratte pagate a tonnellata + a viaggio (es. Saline): un viaggio porta al massimo 35-40 t
+      const giusti = Math.ceil(v.ton / 38);
+      segnala({ gruppo: "Viaggi", gravita: "alta", chiave: "V-NVIAGGI|" + v.id,
+        titolo: "Numero viaggi troppo basso per le tonnellate · " + nome(v.targa),
+        dettaglio: descV(v) + ". " + num1(v.ton) + " t in " + (v.nViaggi || 0) + (v.nViaggi === 1 ? " viaggio" : " viaggi") +
+          (v.nViaggi ? " = " + num1(v.ton / nv) + " t a viaggio" : "") + ". Dovrebbero essere almeno " + giusti +
+          " viaggi: mancano circa " + euro((giusti - (v.nViaggi || 0)) * t.viaggio) + " (" + euro(t.viaggio) + " a viaggio).",
+        foglio: "REGISTRO_VIAGGI", riga: v.riga });
+    }
+  });
+
+  // stesso autista su due camion nello stesso giorno (i notturni non contano)
+  const autGiorno = {};
+  viaggi.forEach(v => {
+    if (!nel(v.giorno) || !v.autista || !v.targa || notte(v)) return;
+    const k = v.giorno + "|" + v.autista;
+    (autGiorno[k] = autGiorno[k] || []).push(v);
+  });
+  Object.keys(autGiorno).forEach(k => {
+    const l = autGiorno[k], targhe = [];
+    l.forEach(v => { if (targhe.indexOf(v.targa) < 0) targhe.push(v.targa); });
+    if (targhe.length < 2) return;
+    const v = l[l.length - 1];
+    segnala({ gruppo: "Viaggi", gravita: "media", chiave: "V-2CAMION|" + v.id,
+      titolo: "Autista su " + targhe.length + " camion nello stesso giorno · " + v.autista,
+      dettaglio: dataC(v.giorno) + ": " + l.map(x => nome(x.targa) + " (" + x.tratta + ", riga " + x.riga + ")").join("; ") +
+        ". Ha cambiato camion o uno dei viaggi è sul camion sbagliato?",
+      foglio: "REGISTRO_VIAGGI", riga: v.riga });
   });
 
   // ---------------- RIFORNIMENTI ----------------
@@ -815,6 +900,40 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi) {
     });
   }
 
+  // giornata del camion in perdita (stessa regola del REGISTRO_MESE):
+  //  lun-ven: 320 per il lavoro di giorno; notturno da solo 320, notturno con altri lavori 180
+  //  sab-dom: 100 per ogni gruppo (giorno / notte); + km x €/km
+  const par = extra.parametri;
+  if (par) {
+    const gg = {};
+    viaggi.forEach(v => {
+      if (!nel(v.giorno) || v.stato !== "Completato" || !v.targa) return;
+      const k = v.giorno + "|" + v.targa;
+      const x = gg[k] = gg[k] || { giorno: v.giorno, targa: v.targa, ric: 0, km: 0, giornoN: false, notteN: false, l: [] };
+      x.ric += v.ricavo || 0; x.km += Math.max(0, v.km || 0); x.l.push(v);
+      if (notte(v)) x.notteN = true; else x.giornoN = true;
+    });
+    Object.keys(gg).forEach(k => {
+      const x = gg[k];
+      const dow = new Date((x.giorno - 25569) * 86400000).getUTCDay();
+      const weekend = dow === 0 || dow === 6;
+      let fisso;
+      if (weekend) fisso = par.weekend * ((x.giornoN ? 1 : 0) + (x.notteN ? 1 : 0));
+      else fisso = (x.giornoN ? par.giorno : 0) + (x.notteN ? (x.giornoN ? par.notte : par.giorno) : 0);
+      const costo = fisso + x.km * par.km;
+      const margine = x.ric - costo;
+      if (margine >= -20) return;          // pochi euro sotto zero: non è un errore
+      // apro il viaggio con il ricavo più basso: è il più probabile da correggere
+      const v = x.l.slice().sort((a, b) => (a.ricavo || 0) - (b.ricavo || 0))[0];
+      segnala({ gruppo: "Camion", gravita: "media", chiave: "C-PERDITA|" + x.targa + "|" + x.giorno,
+        titolo: "Giornata in perdita · " + nome(x.targa),
+        dettaglio: dataC(x.giorno) + ": ricavi " + euro(x.ric) + ", costi stimati " + euro(costo) + " (fisso " + euro(fisso) +
+          " + " + kmC(x.km) + " km) = " + euro(margine) + ". Viaggi: " +
+          x.l.map(y => y.tratta + " " + euro(y.ricavo || 0)).join(", ") + ". Manca un viaggio, le ore o le tonnellate?",
+        foglio: "REGISTRO_VIAGGI", riga: v.riga, viaggio: v.id, giorno: serialToISO(v.giorno) });
+    });
+  }
+
   // per le segnalazioni sui viaggi: quale viaggio aprire nella scheda Modifica
   const perId = {};
   viaggi.forEach(v => { perId[v.id] = v; });
@@ -840,27 +959,28 @@ async function azControlli(req) {
   const dal = req.dal ? Math.floor(dataSerial(req.dal)) : oggi - 6;
   const al = req.al ? Math.floor(dataSerial(req.al)) : oggi;
 
-  const risp = await sheets().spreadsheets.values.batchGet({
-    spreadsheetId: SHEET_ID,
-    ranges: ["REGISTRO_VIAGGI!A2:AD" + (FINESTRA_MAX + 1), "REGISTRO_RIFORNIMENTI!A2:G5000", "CONTROLLI_IGNORATI!A2:A5000"],
-    valueRenderOption: "UNFORMATTED_VALUE",
-    dateTimeRenderOption: "SERIAL_NUMBER"
-  }).catch(async e => {
-    // se il foglio CONTROLLI_IGNORATI non c'è ancora, leggo solo gli altri due
-    const r2 = await sheets().spreadsheets.values.batchGet({
-      spreadsheetId: SHEET_ID,
-      ranges: ["REGISTRO_VIAGGI!A2:AD" + (FINESTRA_MAX + 1), "REGISTRO_RIFORNIMENTI!A2:G5000"],
-      valueRenderOption: "UNFORMATTED_VALUE",
-      dateTimeRenderOption: "SERIAL_NUMBER"
-    });
+  const leggiVari = ranges => sheets().spreadsheets.values.batchGet({
+    spreadsheetId: SHEET_ID, ranges: ranges,
+    valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "SERIAL_NUMBER"
+  });
+  const fissi = ["REGISTRO_VIAGGI!A2:AD" + (FINESTRA_MAX + 1), "REGISTRO_RIFORNIMENTI!A2:G5000", "PARAMETRI!B2:B9"];
+  // se il foglio CONTROLLI_IGNORATI non c'è ancora, leggo solo gli altri
+  const risp = await leggiVari(fissi.concat(["CONTROLLI_IGNORATI!A2:A5000"])).catch(async e => {
+    const r2 = await leggiVari(fissi);
     r2.data.valueRanges.push({ values: [] });
     return r2;
   });
   const blocchi = (risp.data.valueRanges || []).map(v => v.values || []);
   const ignorati = {};
-  (blocchi[2] || []).forEach(r => { if (r[0]) ignorati[String(r[0])] = true; });
+  (blocchi[3] || []).forEach(r => { if (r[0]) ignorati[String(r[0])] = true; });
 
-  const ris = calcolaControlli(blocchi[0], blocchi[1], b.mezzi, ignorati, dal, al, oggi);
+  // PARAMETRI: B2 costo giornaliero, B3 €/km, B6 notturno con altri lavori, B8 sabato e domenica
+  const P = (blocchi[2] || []).map(r => numC(r && r[0]));
+  const pv = (i, def) => (P[i] != null && !isNaN(P[i]) ? P[i] : def);
+  const parametri = { giorno: pv(0, 320), km: pv(1, 0.9), notte: pv(4, 180), weekend: pv(6, 100) };
+
+  const ris = calcolaControlli(blocchi[0], blocchi[1], b.mezzi, ignorati, dal, al, oggi,
+    { tariffe: b.tariffe, categoria: b.categoria, parametri: parametri });
   ris.dal = serialToISO(dal);
   ris.al = serialToISO(al);
   return ris;

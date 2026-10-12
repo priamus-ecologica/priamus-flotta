@@ -1541,7 +1541,7 @@ function aggiornaKmMV(id) {
     else { const d = Math.round((Number(a) - Number(p)) * 10) / 10;
       box.innerHTML = "<b style='color:" + (d < 0 || d > 900 ? "#dc2626" : "var(--blue)") + "'>" + d.toLocaleString("it-IT") + "</b>" + (d < 0 ? " ⚠️" : d > 900 ? " ⚠️" : ""); }
     const t = Number($("mv-ton-" + id).value);
-    $("mv-tonhint-" + id).textContent = t > 60 ? "kg? = " + (t / 1000).toLocaleString("it-IT") + " t" : "";
+    $("mv-tonhint-" + id).textContent = t > 1000 ? "kg? = " + (t / 1000).toLocaleString("it-IT") + " t" : "";
     return;
   }
   const p = Number($("mv-kmP-" + id).value), a = Number($("mv-kmA-" + id).value);
@@ -1550,7 +1550,7 @@ function aggiornaKmMV(id) {
   else if (a < p) { box.innerHTML = "<span style='color:#dc2626;font-weight:700'>⚠️ I km di arrivo sono più bassi di quelli di partenza</span>"; }
   else { const d = Math.round((a - p) * 10) / 10; box.innerHTML = "Km del viaggio: <b>" + d.toLocaleString("it-IT") + "</b>" + (d > 900 ? " <span style='color:#dc2626;font-weight:700'>⚠️ sembrano troppi</span>" : ""); }
   const t = Number($("mv-ton-" + id).value);
-  $("mv-tonhint-" + id).innerHTML = t > 60
+  $("mv-tonhint-" + id).innerHTML = t > 1000
     ? "<span style='color:#dc2626;font-weight:700'>⚠️ " + t.toLocaleString("it-IT") + " sembrano kg: in tonnellate sono " + (t / 1000).toLocaleString("it-IT") + "</span>"
     : "In tonnellate (es. 27,4), non in kg.";
 }
@@ -1649,7 +1649,7 @@ function rigaVistaMV(v) {
       "<td class='num'" + stileEvidMV(v.id, "kmP") + ">" + n(v.kmP) + "</td><td class='num'" + stileEvidMV(v.id, "kmA") + ">" + n(v.kmA) + "</td>" +
       "<td class='num'" + stileEvidMV(v.id, "km") + "><b" + ((v.km != null && (v.km < 0 || v.km > 900)) ? " style='color:#dc2626'" : "") + ">" + n(v.km) + "</b></td>" +
       "<td class='num'>" + n(v.nViaggi) + "</td>" +
-      "<td class='num'" + (Number(v.ton) > 60 ? " style='color:#dc2626' title='Sembrano kg'" : "") + ">" + n(v.ton) + "</td>" +
+      "<td class='num'" + (Number(v.ton) > 1000 ? " style='color:#dc2626' title='Sembrano kg'" : "") + ">" + n(v.ton) + "</td>" +
       "<td class='num'>" + ore + "</td>" +
       "<td class='num'>" + euro(v.ricavoTariffa) + "</td>" +
       "<td class='num'>" + (v.ricMan === "" ? "" : euro(v.ricMan)) + "</td>" +
