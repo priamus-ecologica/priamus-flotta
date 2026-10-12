@@ -758,12 +758,6 @@ function calcolaControlli(righeV, righeR, mezzi, ignorati, dal, al, oggi) {
           foglio: "REGISTRO_RIFORNIMENTI", riga: x.riga });
       }
     }
-    if (!x.km) {
-      segnala({ gruppo: "Rifornimenti", gravita: "bassa", chiave: "R-SENZAKM|" + x.id,
-        titolo: "Rifornimento senza km · " + nome(x.targa),
-        dettaglio: descR(x) + ". Senza i km il consumo del camion non torna.",
-        foglio: "REGISTRO_RIFORNIMENTI", riga: x.riga });
-    }
   });
 
   // targhe che non sono in anagrafica: una sola segnalazione per targa
