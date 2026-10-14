@@ -71,6 +71,8 @@ function onOpen() {
     .addItem("Disattiva", "DISATTIVA_MAIL_SERALE");
 
   ui.createMenu("🚛 Priamus")
+    .addItem("➕ Carico extra (sul viaggio selezionato)", "CARICO_EXTRA")
+    .addSeparator()
     .addSubMenu(assegna)
     .addSubMenu(costi)
     .addSubMenu(schede)

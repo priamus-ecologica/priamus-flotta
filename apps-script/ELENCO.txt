@@ -9,3 +9,4 @@ SchedeMezzi.gs
 appsscript.json
 estensioni.gs
 RiepilogoSerale.gs
+CaricoExtra.gs
