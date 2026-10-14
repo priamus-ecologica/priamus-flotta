@@ -1205,17 +1205,26 @@ async function azAggiungiExtra(req) {
   if (giorno == null) throw new Error("Il viaggio di partenza non ha una data valida.");
 
   const nuovoId = "extra-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
-  const nota = String(req.nota || "").trim() || ("Carico extra aggiunto dalla riga " + riga + " (" + String(r[18] || "") + ")");
-  await sheets().spreadsheets.values.append({
+  const nota = String(req.nota || "").trim() || ("Carico extra del viaggio qui sopra (" + String(r[18] || "") + ")");
+  const valori = [[
+    nuovoId, Math.floor(giorno), String(r[2] || ""), "", String(r[4] || "").trim(), "", "", "",
+    regola.partenza || "", regola.arrivo || "", "", ton, ore, "", "", "Completato", "",
+    nota, regola.chiave, "", nv, ""
+  ]];
+  // la riga nuova va SUBITO SOTTO il viaggio a cui si aggiunge (non in fondo al registro)
+  const meta = await sheets().spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets.properties" });
+  const scheda = meta.data.sheets.find(s => s.properties.title === "REGISTRO_VIAGGI");
+  await sheets().spreadsheets.batchUpdate({
     spreadsheetId: SHEET_ID,
-    range: "REGISTRO_VIAGGI!A1:V1",
+    requestBody: { requests: [{ insertDimension: {
+      range: { sheetId: scheda.properties.sheetId, dimension: "ROWS", startIndex: riga, endIndex: riga + 1 },
+      inheritFromBefore: true } }] }
+  });
+  await sheets().spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: "REGISTRO_VIAGGI!A" + (riga + 1) + ":V" + (riga + 1),
     valueInputOption: "RAW",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: { values: [[
-      nuovoId, Math.floor(giorno), String(r[2] || ""), "", String(r[4] || "").trim(), "", "", "",
-      regola.partenza || "", regola.arrivo || "", "", ton, ore, "", "", "Completato", "",
-      nota, regola.chiave, "", nv, ""
-    ]] }
+    requestBody: { values: valori }
   });
 
   try {
