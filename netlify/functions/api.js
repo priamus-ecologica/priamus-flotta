@@ -1176,6 +1176,64 @@ async function azSalvaViaggio(req) {
   return { msg: "Viaggio aggiornato (" + campi.length + (campi.length === 1 ? " campo)." : " campi)."), viaggio: viaggioDaRiga(aggiornato, riga, b) };
 }
 
+// CARICO EXTRA: una riga nuova con lo stesso giorno, autista e camion di un viaggio,
+// ma con un'altra tratta (es. "Saline a tonnellata" per i carichi Saline fatti
+// da un camion che quel giorno lavora per Roda). Km vuoti: sono gia' nel viaggio principale.
+// Cosi' il ricavo va al cliente giusto invece di finire come "ricavo manuale".
+async function azAggiungiExtra(req) {
+  const b = await base();
+  const chi = String(req.chi || "").trim();
+  if (!chi) throw new Error("Scrivi il tuo nome in \"Chi modifica\".");
+  const regola = b.regole.find(x => x.chiave === String(req.tratta || "").trim());
+  if (!regola) throw new Error("Scegli una tratta che c'e' in REGOLE_VIAGGI.");
+  const numero = (v, nome, intero) => {
+    if (v === "" || v == null) return "";
+    const n = numC(v);
+    if (n == null || n < 0 || (intero && Math.round(n) !== n)) throw new Error(nome + ": numero non valido.");
+    return n;
+  };
+  const ton = numero(req.ton, "Tonnellate"), nv = numero(req.nViaggi, "Numero viaggi", true), ore = numero(req.ore, "Ore");
+  if (ton === "" && ore === "" && nv === "") throw new Error("Scrivi almeno tonnellate, ore o numero viaggi.");
+  if (ton !== "" && ton > 1000) throw new Error("Tonnellate: " + ton + " sembrano kg. Scrivile in tonnellate.");
+
+  const righe = await leggiRegistroCompleto();
+  let idx = -1;
+  for (let i = righe.length - 1; i >= 0; i--) if (String(righe[i][0]) === String(req.id)) { idx = i; break; }
+  if (idx < 0) throw new Error("Viaggio non trovato: ricarica l'elenco.");
+  const r = righe[idx], riga = idx + 2;
+  const giorno = serialC(r[1]);
+  if (giorno == null) throw new Error("Il viaggio di partenza non ha una data valida.");
+
+  const nuovoId = "extra-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+  const nota = String(req.nota || "").trim() || ("Carico extra aggiunto dalla riga " + riga + " (" + String(r[18] || "") + ")");
+  await sheets().spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: "REGISTRO_VIAGGI!A1:V1",
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [[
+      nuovoId, Math.floor(giorno), String(r[2] || ""), "", String(r[4] || "").trim(), "", "", "",
+      regola.partenza || "", regola.arrivo || "", "", ton, ore, "", "", "Completato", "",
+      nota, regola.chiave, "", nv, ""
+    ]] }
+  });
+
+  try {
+    await sheets().spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: "MODIFICHE_VIAGGI!A1:I1",
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [[serialToData(oggiSerialRoma()) + " " + oraLocale(), chi, nuovoId, "nuova",
+        serialToData(Math.floor(giorno)), String(r[2] || ""), "Carico extra", "",
+        regola.chiave + (ton !== "" ? " · " + ton + " t" : "") + (nv !== "" ? " · " + nv + " viaggi" : "") + (ore !== "" ? " · " + ore + " ore" : "")]] }
+    });
+  } catch (e) {}
+
+  svuotaCoda();
+  return { msg: "Carico extra aggiunto: " + regola.chiave + " sullo stesso camion e giorno.", id: nuovoId };
+}
+
 // Le ore possono arrivare come "4:30", "4,5" o numero: le riporto a decimale
 function parseOre(v) {
   if (v == null || v === "") return 0;
@@ -1234,6 +1292,7 @@ exports.handler = async function (event) {
       case "giornata":      dati = await azGiornata(req); break;
       case "cercaViaggi":   dati = await azCercaViaggi(req); break;
       case "salvaViaggio":  dati = await azSalvaViaggio(req); break;
+      case "aggiungiExtra": dati = await azAggiungiExtra(req); break;
       default: return rispondi({ ok: false, msg: "Azione sconosciuta: " + req.azione });
     }
     return rispondi({ ok: true, dati });
