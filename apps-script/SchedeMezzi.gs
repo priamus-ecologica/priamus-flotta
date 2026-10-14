@@ -874,15 +874,16 @@ function smRiepiloghiV22_(sh, R1, U, mesi, rMese, rUltimoMese) {
    { r: 7, nome: "Pianale", cod: "p", par: "$B$9" }].forEach(x => {
     sh.getRange(x.r, 1).setValue(x.nome).setFontWeight("bold");
     riga(x.r, 2,
-      TR + '="' + x.cod + '";' + DATE + '>=$B$2;' + DATE + '<=$D$2',
-      TR + ';"' + x.cod + '";' + DATE + ';">="&$B$2;' + DATE + ';"<="&$D$2', x.par);
+      // fine periodo: "< giorno dopo", perche' le date dell'app hanno anche l'ora (es. 13/10 ore 12)
+      TR + '="' + x.cod + '";' + DATE + '>=$B$2;' + DATE + '<$D$2+1',
+      TR + ';"' + x.cod + '";' + DATE + ';">="&$B$2;' + DATE + ';"<"&($D$2+1)', x.par);
   });
   sh.getRange(8, 1).setValue("TOTALE").setFontWeight("bold");
   totale(8, 2, 5, 7);
   // giornate REALI del periodo: un camion che nello stesso giorno fa due tipi di lavoro
   // conta una volta sola (nelle righe dei tipi invece compare in entrambe)
   const unTipo = '((' + TR + '="t")+(' + TR + '="r")+(' + TR + '="p"))>0';
-  sh.getRange(8, 2).setFormula('=IFERROR(ROWS(UNIQUE(FILTER(' + chiave + ';' + DATE + '>=$B$2;' + DATE + '<=$D$2;' +
+  sh.getRange(8, 2).setFormula('=IFERROR(ROWS(UNIQUE(FILTER(' + chiave + ';' + DATE + '>=$B$2;' + DATE + '<$D$2+1;' +
     VIS + '=1;' + unTipo + ')));0)');
   sh.getRange(8, 1, 1, 1 + N_COL).setFontWeight("bold").setBackground("#ede9fe");
   stile(5, 4, 2, 1 + N_COL);
