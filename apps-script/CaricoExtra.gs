@@ -68,15 +68,19 @@ function CE_SALVA(dati) {
     sh.insertRowAfter(riga);
     sh.getRange(riga + 1, 1, 1, valori.length).setValues([valori]);
 
-    // registro delle modifiche
-    const log = ss.getSheetByName("MODIFICHE_VIAGGI");
-    if (log) {
-      const chi = Session.getActiveUser().getEmail() || "foglio (menu)";
-      const quando = Utilities.formatDate(new Date(), "Europe/Rome", "dd/MM/yyyy HH:mm");
-      log.appendRow(["'" + quando, chi, id, riga + 1, Utilities.formatDate(giorno, "Europe/Rome", "dd/MM/yyyy"),
-        String(r[2] || ""), "Carico extra", "",
-        regola.chiave + (ton !== "" ? " · " + ton + " t" : "") + (nv !== "" ? " · " + nv + " viaggi" : "") + (ore !== "" ? " · " + ore + " ore" : "")]);
-    }
+    // registro delle modifiche (se qualcosa va storto qui, la riga resta comunque aggiunta)
+    try {
+      const log = ss.getSheetByName("MODIFICHE_VIAGGI");
+      if (log) {
+        // l'email di chi usa il menu: senza l'autorizzazione "userinfo.email" Google da' errore, quindi la provo e basta
+        let chi = "";
+        try { chi = Session.getActiveUser().getEmail(); } catch (e) {}
+        const quando = Utilities.formatDate(new Date(), "Europe/Rome", "dd/MM/yyyy HH:mm");
+        log.appendRow(["'" + quando, chi || "foglio (menu)", id, riga + 1, Utilities.formatDate(giorno, "Europe/Rome", "dd/MM/yyyy"),
+          String(r[2] || ""), "Carico extra", "",
+          regola.chiave + (ton !== "" ? " · " + ton + " t" : "") + (nv !== "" ? " · " + nv + " viaggi" : "") + (ore !== "" ? " · " + ore + " ore" : "")]);
+      }
+    } catch (e) {}
 
     // il registro del mese nasconde le righe per posizione: dopo l'aggiunta rimetto a posto il filtro
     try {
@@ -161,7 +165,7 @@ function ceHtml_(v, tratte) {
     "<script>" +
     "function salva(){var b=document.getElementById('ok');b.disabled=true;b.textContent='Salvataggio…';" +
     "var m=document.getElementById('msg');m.textContent='';" +
-    "google.script.run.withSuccessHandler(function(t){m.className='ok';m.textContent='✅ '+t;b.textContent='Fatto';setTimeout(function(){google.script.host.close()},1800);})" +
+    "google.script.run.withSuccessHandler(function(t){m.className='ok';m.textContent='✅ '+t;b.textContent='Fatto';setTimeout(function(){google.script.host.close()},3000);})" +
     ".withFailureHandler(function(e){m.className='err';m.textContent='⚠️ '+e.message;b.disabled=false;b.textContent='Aggiungi';})" +
     ".CE_SALVA({id:" + JSON.stringify(v.id) + ",tratta:document.getElementById('tratta').value,ton:document.getElementById('ton').value," +
     "nv:document.getElementById('nv').value,ore:document.getElementById('ore').value,nota:document.getElementById('nota').value});}" +
