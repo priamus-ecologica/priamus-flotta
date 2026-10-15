@@ -1099,7 +1099,7 @@ function disegnaControlli() {
     return;
   }
 
-  const gruppi = ["Viaggi", "Rifornimenti", "Camion"];
+  const gruppi = ["Viaggi"];
   let html = "";
   gruppi.forEach(gr => {
     const l = CTRL.segnalazioni.filter(s => s.gruppo === gr);
@@ -1125,7 +1125,7 @@ function disegnaControlli() {
         "</div></div>";
     }).join("");
   });
-  html += "<div class='hint' style='margin-top:12px'>Clicca una segnalazione sui viaggi per aprirla nella scheda Modifica; i rifornimenti si correggono nel foglio alla riga indicata. " +
+  html += "<div class='hint' style='margin-top:12px'>Clicca una segnalazione per aprire il viaggio nella scheda Modifica. " +
     "\"Ignora\" serve per le cose giuste che sembrano errori: non verranno più mostrate.</div>";
   $("ctrl-lista").innerHTML = html;
 }
