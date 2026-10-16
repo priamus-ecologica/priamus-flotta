@@ -48,6 +48,9 @@ const CM_TARGHE_UGUALI = {
   "HF943DL": "GE098XW"    // Mercedes 530 (1): nuova targa dopo lo smarrimento
 };
 
+// Mezzi da NON importare (non fanno parte dei conti dei camion)
+const CM_TARGHE_ESCLUSE = ["GH773GJ"];
+
 const CM_MESI = {
   "GENNAIO": 1, "FEBBRAIO": 2, "MARZO": 3, "APRILE": 4, "MAGGIO": 5, "GIUGNO": 6,
   "LUGLIO": 7, "AGOSTO": 8, "SETTEMBRE": 9, "OTTOBRE": 10, "NOVEMBRE": 11, "DICEMBRE": 12
@@ -169,6 +172,7 @@ function cmImportaTutto_() {
       if (!importo) return;
 
       const targa = CM_TARGHE_UGUALI[m[1]] || m[1];
+      if (CM_TARGHE_ESCLUSE.indexOf(targa) >= 0) return;
       const voceOrig = m[2].trim().toUpperCase();
       const voce = CM_VOCI_UGUALI[voceOrig] || voceOrig;
 
