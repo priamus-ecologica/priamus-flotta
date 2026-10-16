@@ -27,6 +27,7 @@ const CM_VOCI_UGUALI = {
   "CONTRATTO DI MANUTENZIONE": "CONTR. MANUTENZIONE",
   "RIPARAZIONI - MANUTENZIONI": "RIPARAZIONI",
   "RIPARAZIONI E RICAMBI": "RIPARAZIONI",
+  "RICAMBI - RIPARAZIONI": "RIPARAZIONI",
   "RIPARAZIONE": "RIPARAZIONI",
   "RIPAZIONI": "RIPARAZIONI",          // refuso ricorrente nei file
   "ASSICURAZIONI": "ASSICURAZIONE",
@@ -34,6 +35,17 @@ const CM_VOCI_UGUALI = {
   "MUTUO SELLA": "MUTUO",
   "ANTICIPO LEASING": "ANTICIPO",
   "MUTUO": "MUTUO"
+};
+
+// Targhe scritte male nei file della contabilita' -> targa del database
+// (cosi' i costi finiscono sulla scheda del mezzo giusto)
+const CM_TARGHE_UGUALI = {
+  "HA879PG": "HA878PG",   // Volvo 540
+  "HE973NF": "HE972FN",   // Man 520 (2): targa vera HE973FN, nel database HE972FN
+  "HE973FN": "HE972FN",
+  "XA155FT": "XA115FT",   // rimorchio V.10
+  "XA452ZD": "XA452ZA",   // rimorchio V.5
+  "HF943DL": "GE098XW"    // Mercedes 530 (1): nuova targa dopo lo smarrimento
 };
 
 const CM_MESI = {
@@ -156,7 +168,7 @@ function cmImportaTutto_() {
       const importo = cmNumero_(r[col.importo]);
       if (!importo) return;
 
-      const targa = m[1];
+      const targa = CM_TARGHE_UGUALI[m[1]] || m[1];
       const voceOrig = m[2].trim().toUpperCase();
       const voce = CM_VOCI_UGUALI[voceOrig] || voceOrig;
 
