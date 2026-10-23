@@ -1607,7 +1607,7 @@ function smAssicuraParametri_(s) {
   // il costo giornaliero (B2) diventa autista + fissi: si cambiano le righe 10 e 11
   if (nuovaDivisione) {
     par.getRange("B2").setFormula("=B10+B11");
-    par.getRange("C2").setValue("= autista (riga 10) + fissi del mezzo (riga 11): cambia quelle due righe");
+    par.getRange("C2").setValue("somma di autista (riga 10) + fissi del mezzo (riga 11): cambia quelle due righe");
   }
 }
 
