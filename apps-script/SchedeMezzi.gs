@@ -585,7 +585,7 @@ function CREA_REGISTRO_MESE() {
   //  COLONNE VISIBILI
   //  A Mese   B Data   C Targa   D Categoria   E Autista   F Tratta   G T/R
   //  H Costo AUTISTA (automatico)   I Costi FISSI del mezzo (automatico)
-  //  J Costo giornaliero MANUALE (tua: sostituisce autista + fissi)
+  //  J Costo giornaliero MANUALE (tua: sostituisce autista + fissi, conta tutto come autista)
   //  K Km   L €/km (tua)   M Totale costo
   //  N Tonn.  O €/ton   P Ore   Q €/ora
   //  R Ricavo €   S Margine reale del giorno   T Teorico del giorno
@@ -596,7 +596,7 @@ function CREA_REGISTRO_MESE() {
   //  X chiave gruppo   Y chiave giorno   Z ricavo usato (manuale o calcolato)
   //  AA id   AB:AL dati grezzi (AL = Totale_Ricavi_Manuale)
   //  AM riga visibile   AN/AO costo e ricavo della giornata   AP elenco tratte
-  //  AQ parte AUTISTA usata   AR parte FISSI usata (con il manuale: divisa in proporzione)
+  //  AQ parte AUTISTA usata   AR parte FISSI usata (con il manuale: tutto autista, fissi 0)
   // =====================================================================
   sh.getRange(R1, 1).setFormula('=ARRAYFORMULA(IF(' + D + '="";"";TEXT(' + D + ';"yyyy-mm")))');
   copia(2, D);                 // B Data
@@ -661,11 +661,9 @@ function CREA_REGISTRO_MESE() {
     '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + rg('J') + '="";N(' + rg('H') + ')+N(' + rg('I') + ');' + rg('J') + ')))');
 
   // AQ / AR (nascoste): parte AUTISTA e parte FISSI del costo usato.
-  // Senza manuale sono H e I. Con il manuale, il manuale si divide nella stessa proporzione di H e I
-  // (se H e I sono zero va tutto all'autista).
+  // Senza manuale sono H e I. Con il manuale, il manuale va TUTTO al costo autista (fissi 0).
   sh.getRange(R1, 43).setFormula(
-    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + rg('J') + '="";N(' + rg('H') + ');' +
-    'IF(N(' + rg('H') + ')+N(' + rg('I') + ')>0;N(' + rg('J') + ')*N(' + rg('H') + ')/(N(' + rg('H') + ')+N(' + rg('I') + '));N(' + rg('J') + ')))))');
+    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + rg('J') + '="";N(' + rg('H') + ');N(' + rg('J') + '))))');
   sh.getRange(R1, 44).setFormula(
     '=ARRAYFORMULA(IF(' + D + '="";"";N(' + rg('U') + ')-N(' + rg('AQ') + ')))');
 
