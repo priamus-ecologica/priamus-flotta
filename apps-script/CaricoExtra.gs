@@ -98,7 +98,7 @@ function CE_SALVA(dati) {
 // ---------------- funzioni di supporto ----------------
 
 // Il viaggio della riga selezionata: da REGISTRO_VIAGGI direttamente,
-// da REGISTRO_MESE tramite l'ID (colonna Z nascosta).
+// da REGISTRO_MESE tramite l'ID (colonna AA nascosta).
 function ceViaggioSelezionato_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getActiveSheet();

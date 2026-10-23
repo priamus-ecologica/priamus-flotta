@@ -451,9 +451,9 @@ function smMesiConDati_(s) {
 // Ora sta nel foglio REGISTRO_ANNO (comando "Crea il registro anno").
 const SM_MOSTRA_MENSILE = false;
 
-const SM_COL_EUROKM = 11;     // K  €/km, la scrivi tu
-const SM_COL_COSTOG_MAN = 9;  // I  costo giornaliero manuale, lo scrivi tu
-const SM_COL_ID = 26;         // Z nascosta: id del viaggio, serve a non perdere le modifiche
+const SM_COL_EUROKM = 12;     // L  €/km, la scrivi tu
+const SM_COL_COSTOG_MAN = 10; // J  costo giornaliero manuale, lo scrivi tu
+const SM_COL_ID = 27;         // AA nascosta: id del viaggio, serve a non perdere le modifiche
 
 function CREA_REGISTRO_MESE() {
   const t0 = Date.now();
@@ -533,7 +533,7 @@ function CREA_REGISTRO_MESE() {
     sh = s.insertSheet(SM_FOGLIO_REGISTRO, 0);
   }
   sh.setTabColor("#6d28d9");
-  if (sh.getMaxColumns() < 42) sh.insertColumnsAfter(sh.getMaxColumns(), 42 - sh.getMaxColumns());
+  if (sh.getMaxColumns() < 44) sh.insertColumnsAfter(sh.getMaxColumns(), 44 - sh.getMaxColumns());
 
   const mesi = smMesiConDati_(s);
   const rMese = 11;                                       // (confronto mese per mese, se attivo)
@@ -542,7 +542,7 @@ function CREA_REGISTRO_MESE() {
   const R1 = rTest + 1;
 
   // ---------- testata ----------
-  sh.getRange("A1:S1").merge().setValue("REGISTRO VIAGGI  —  tutti i mesi")
+  sh.getRange("A1:T1").merge().setValue("REGISTRO VIAGGI  —  tutti i mesi")
     .setFontSize(15).setFontWeight("bold").setFontColor("#FFFFFF")
     .setBackground("#6d28d9").setVerticalAlignment("middle");
   sh.setRowHeight(1, 36);
@@ -558,182 +558,199 @@ function CREA_REGISTRO_MESE() {
     .setBackground("#fff7ed").setFontWeight("bold").setHorizontalAlignment("center")
     .setBorder(true, true, true, true, false, false, SM_ARANCIO, SpreadsheetApp.BorderStyle.SOLID_THICK);
   // ---------- TRATTA: filtra tutta la tabella (elenco e confronto) ----------
-  // AO (nascosta): "Tutte" + le tratte presenti nel registro, per la tendina
-  sh.getRange("AO1").setValue("Tutte");
-  sh.getRange("AO2").setFormula('=IFERROR(SORT(UNIQUE(FILTER($F$' + R1 + ':$F$' + U + ';$F$' + R1 + ':$F$' + U + '<>"")));"")');
+  // AP (nascosta): "Tutte" + le tratte presenti nel registro, per la tendina
+  sh.getRange("AP1").setValue("Tutte");
+  sh.getRange("AP2").setFormula('=IFERROR(SORT(UNIQUE(FILTER($F$' + R1 + ':$F$' + U + ';$F$' + R1 + ':$F$' + U + '<>"")));"")');
   sh.getRange("F2").setValue("Tratta").setFontWeight("bold").setHorizontalAlignment("right");
   sh.getRange("G2:I2").merge().setValue("Tutte")
     .setBackground("#fff7ed").setFontWeight("bold").setHorizontalAlignment("center")
     .setBorder(true, true, true, true, false, false, SM_ARANCIO, SpreadsheetApp.BorderStyle.SOLID_THICK)
     .setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInRange(sh.getRange("AO1:AO300"), true).setAllowInvalid(false).build());
+      .requireValueInRange(sh.getRange("AP1:AP300"), true).setAllowInvalid(false).build());
   sh.getRange("K2").setValue("← Dal/al e Tratta filtrano tutta la tabella: elenco dei viaggi e confronto. (Tratta: Tutte = nessun filtro)")
     .setFontStyle("italic").setFontColor("#94a3b8").setFontSize(9);
 
-  // ---------- dati grezzi, nascosti (AA:AJ) ----------
-  sh.getRange(R1, 27).setFormula(
+  // ---------- dati grezzi, nascosti (AB:AL) ----------
+  sh.getRange(R1, 28).setFormula(
     '=IFERROR(LET(q;QUERY(REGISTRO_VIAGGI!$A$2:$AB;' +
     '"select A,B,E,C,S,AA,H,L,M,Z,AB where E is not null and B is not null";0);' +
     'SORT(q;2;TRUE;3;TRUE;ARRAYFORMULA(ISNUMBER(SEARCH("notte";INDEX(q;;5))));TRUE;1;TRUE));"")');
 
   const rg = (L) => '$' + L + '$' + R1 + ':$' + L + '$' + U;
-  const D = rg('AB');
+  const D = rg('AC');
   const copia = (col, src) =>
     sh.getRange(R1, col).setFormula('=ARRAYFORMULA(IF(' + D + '="";"";' + src + '))');
 
   // =====================================================================
   //  COLONNE VISIBILI
   //  A Mese   B Data   C Targa   D Categoria   E Autista   F Tratta   G T/R
-  //  H Costo giornaliero (automatico)   I Costo giornaliero MANUALE (tua)
-  //  J Km   K €/km (tua)   L Totale costo
-  //  M Tonn.  N €/ton   O Ore   P €/ora
-  //  Q Ricavo €   R Margine reale del giorno   S Teorico del giorno
+  //  H Costo AUTISTA (automatico)   I Costi FISSI del mezzo (automatico)
+  //  J Costo giornaliero MANUALE (tua: sostituisce autista + fissi)
+  //  K Km   L €/km (tua)   M Totale costo
+  //  N Tonn.  O €/ton   P Ore   Q €/ora
+  //  R Ricavo €   S Margine reale del giorno   T Teorico del giorno
   //
   //  COLONNE NASCOSTE (aiuti di calcolo)
-  //  T costo giornaliero usato (manuale se c'e', altrimenti automatico)
-  //  U 1=viaggio normale/0=appalti   V costo della riga
-  //  W chiave gruppo   X chiave giorno   Y ricavo usato (manuale o calcolato)
-  //  Z id   AA:AK dati grezzi (AK = Totale_Ricavi_Manuale)
+  //  U costo giornaliero usato (manuale se c'e', altrimenti autista + fissi)
+  //  V 1=viaggio normale/0=appalti   W costo della riga
+  //  X chiave gruppo   Y chiave giorno   Z ricavo usato (manuale o calcolato)
+  //  AA id   AB:AL dati grezzi (AL = Totale_Ricavi_Manuale)
+  //  AM riga visibile   AN/AO costo e ricavo della giornata   AP elenco tratte
+  //  AQ parte AUTISTA usata   AR parte FISSI usata (con il manuale: divisa in proporzione)
   // =====================================================================
   sh.getRange(R1, 1).setFormula('=ARRAYFORMULA(IF(' + D + '="";"";TEXT(' + D + ';"yyyy-mm")))');
   copia(2, D);                 // B Data
-  copia(3, rg('AC'));          // C Targa
+  copia(3, rg('AD'));          // C Targa
   sh.getRange(R1, 4).setFormula(   // D Categoria
-    '=ARRAYFORMULA(IF(' + D + '="";"";IFERROR(VLOOKUP(' + rg('AC') + ';ANAGRAFICA_MEZZI!$B:$C;2;FALSE);"")))');
-  copia(5, rg('AD'));          // E Autista
-  copia(6, rg('AE'));          // F Tratta
-  copia(7, rg('AF'));          // G T/R
-  copia(10, rg('AG'));         // J Km
-  copia(13, rg('AH'));         // M Tonn.
-  copia(15, rg('AI'));         // O Ore
-  copia(26, rg('AA'));         // Z id (nascosta)
+    '=ARRAYFORMULA(IF(' + D + '="";"";IFERROR(VLOOKUP(' + rg('AD') + ';ANAGRAFICA_MEZZI!$B:$C;2;FALSE);"")))');
+  copia(5, rg('AE'));          // E Autista
+  copia(6, rg('AF'));          // F Tratta
+  copia(7, rg('AG'));          // G T/R
+  copia(11, rg('AH'));         // K Km
+  copia(14, rg('AI'));         // N Tonn.
+  copia(16, rg('AJ'));         // P Ore
+  copia(27, rg('AB'));         // AA id (nascosta)
 
-  // --- N €/ton: la tariffa a tonnellata della tratta (vuota se la tratta non si paga a tonnellata)
-  const tTon = 'IFERROR(VLOOKUP(' + rg('AE') + ';REGOLE_VIAGGI!$A:$K;6;FALSE);0)';
-  sh.getRange(R1, 14).setFormula(
+  // --- O €/ton: la tariffa a tonnellata della tratta (vuota se la tratta non si paga a tonnellata)
+  const tTon = 'IFERROR(VLOOKUP(' + rg('AF') + ';REGOLE_VIAGGI!$A:$K;6;FALSE);0)';
+  sh.getRange(R1, 15).setFormula(
     '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + tTon + '>0;' + tTon + ';"")))');
 
-  // --- P €/ora: la tariffa oraria APPLICATA, con quella dei 4Assi se esiste
-  const t4A = 'IFERROR(VLOOKUP(' + rg('AE') + ';REGOLE_VIAGGI!$A:$K;11;FALSE);0)';
-  const tOra = 'IFERROR(VLOOKUP(' + rg('AE') + ';REGOLE_VIAGGI!$A:$K;7;FALSE);0)';
+  // --- Q €/ora: la tariffa oraria APPLICATA, con quella dei 4Assi se esiste
+  const t4A = 'IFERROR(VLOOKUP(' + rg('AF') + ';REGOLE_VIAGGI!$A:$K;11;FALSE);0)';
+  const tOra = 'IFERROR(VLOOKUP(' + rg('AF') + ';REGOLE_VIAGGI!$A:$K;7;FALSE);0)';
   const tOraApplicata = 'IF((LOWER(' + rg('D') + ')="4assi")*(' + t4A + '>0);' + t4A + ';' + tOra + ')';
-  sh.getRange(R1, 16).setFormula(
+  sh.getRange(R1, 17).setFormula(
     '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + tOraApplicata + '>0;' + tOraApplicata + ';"")))');
 
   // --- aiuti nascosti per i gruppi (stesso camion, stesso giorno; appalti notte a parte)
   // LAVORO NOTTURNO: qualunque tratta con "notte" nel nome (Appalti notte, Slim notte, ...)
   // e' trattata come l'appalti notte: gruppo a se', 180 se il camion ha fatto anche altro.
-  const isApp = '(ISNUMBER(SEARCH("notte";' + rg('AE') + ')))';
-  sh.getRange(R1, 21).setFormula(          // U: 1 normale, 0 appalti notte
+  const isApp = '(ISNUMBER(SEARCH("notte";' + rg('AF') + ')))';
+  sh.getRange(R1, 22).setFormula(          // V: 1 normale, 0 appalti notte
     '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + isApp + ';0;1)))');
-  sh.getRange(R1, 24).setFormula(          // X: chiave del giorno
-    '=ARRAYFORMULA(IF(' + D + '="";"";TEXT(' + D + ';"yyyymmdd")&"|"&' + rg('AC') + '))');
-  sh.getRange(R1, 23).setFormula(          // W: chiave del gruppo
-    '=ARRAYFORMULA(IF(' + D + '="";"";' + rg('X') + '&"|"&' + rg('U') + '))');
+  sh.getRange(R1, 25).setFormula(          // Y: chiave del giorno
+    '=ARRAYFORMULA(IF(' + D + '="";"";TEXT(' + D + ';"yyyymmdd")&"|"&' + rg('AD') + '))');
+  sh.getRange(R1, 24).setFormula(          // X: chiave del gruppo
+    '=ARRAYFORMULA(IF(' + D + '="";"";' + rg('Y') + '&"|"&' + rg('V') + '))');
 
-  const chiave = rg('W');
-  const chiaveGiorno = rg('X');
-  const primo_ = '(' + chiave + '<>$W$' + (R1 - 1) + ':$W$' + (U - 1) + ')';
+  const chiave = rg('X');
+  const chiaveGiorno = rg('Y');
+  const primo_ = '(' + chiave + '<>$X$' + (R1 - 1) + ':$X$' + (U - 1) + ')';
   // utile atteso della giornata: terra B4, rifiuti B5, PIANALE B9
   const utile = 'IF(' + rg('G') + '="r";PARAMETRI!$B$5;IF(' + rg('G') + '="t";PARAMETRI!$B$4;IF(' + rg('G') + '="p";PARAMETRI!$B$9;0)))';
-  const nNormali = 'SUMIF(' + chiaveGiorno + ';' + chiaveGiorno + ';' + rg('U') + ')';
+  const nNormali = 'SUMIF(' + chiaveGiorno + ';' + chiaveGiorno + ';' + rg('V') + ')';
 
-  // H Costo giornaliero AUTOMATICO, sulla prima riga di ogni gruppo:
-  //  SABATO e DOMENICA -> 100 per qualsiasi gruppo, appalti notte compreso
+  // H Costo AUTISTA e I Costi FISSI del mezzo, AUTOMATICI, sulla prima riga di ogni gruppo:
+  //  SABATO e DOMENICA -> autista 100, fissi 0 (per qualsiasi gruppo, appalti notte compreso)
   //  dal lunedi' al venerdi':
-  //    gruppo normale 320 | appalti notte da solo 320 | appalti notte con altri lavori 180
+  //    gruppo normale e appalti notte da solo -> autista 202 + fissi 118 (= 320)
+  //    appalti notte con altri lavori         -> autista 180, fissi 0 (il mezzo e' gia' pagato di giorno)
+  //  202 e 118 stanno in PARAMETRI B10 e B11 (B2 = B10 + B11).
   sh.getRange(R1, 8).setFormula(
     '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + primo_ + ';' +
     'IF(WEEKDAY(' + D + ';2)>=6;PARAMETRI!$B$8;' +
-    'IF(' + isApp + ';IF(' + nNormali + '>0;PARAMETRI!$B$6;PARAMETRI!$B$2);PARAMETRI!$B$2));0)))');
+    'IF(' + isApp + ';IF(' + nNormali + '>0;PARAMETRI!$B$6;PARAMETRI!$B$10);PARAMETRI!$B$10));0)))');
+  sh.getRange(R1, 9).setFormula(
+    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + primo_ + ';' +
+    'IF(WEEKDAY(' + D + ';2)>=6;0;' +
+    'IF(' + isApp + ';IF(' + nNormali + '>0;0;PARAMETRI!$B$11);PARAMETRI!$B$11));0)))');
 
-  // T (nascosta): costo giornaliero USATO = il tuo (colonna I) se l'hai scritto, altrimenti l'automatico
-  sh.getRange(R1, 20).setFormula(
-    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + rg('I') + '="";' + rg('H') + ';' + rg('I') + ')))');
+  // U (nascosta): costo giornaliero USATO = il tuo (colonna J) se l'hai scritto, altrimenti autista + fissi
+  sh.getRange(R1, 21).setFormula(
+    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + rg('J') + '="";N(' + rg('H') + ')+N(' + rg('I') + ');' + rg('J') + ')))');
 
-  // V (nascosta): costo della singola riga = costo giornaliero usato + km x €/km
-  sh.getRange(R1, 22).setFormula(
-    '=ARRAYFORMULA(IF(' + D + '="";"";N(' + rg('T') + ')+N(' + rg('J') + ')*' +
-    'IF(' + rg('K') + '="";PARAMETRI!$B$3;' + rg('K') + ')))');
+  // AQ / AR (nascoste): parte AUTISTA e parte FISSI del costo usato.
+  // Senza manuale sono H e I. Con il manuale, il manuale si divide nella stessa proporzione di H e I
+  // (se H e I sono zero va tutto all'autista).
+  sh.getRange(R1, 43).setFormula(
+    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + rg('J') + '="";N(' + rg('H') + ');' +
+    'IF(N(' + rg('H') + ')+N(' + rg('I') + ')>0;N(' + rg('J') + ')*N(' + rg('H') + ')/(N(' + rg('H') + ')+N(' + rg('I') + '));N(' + rg('J') + ')))))');
+  sh.getRange(R1, 44).setFormula(
+    '=ARRAYFORMULA(IF(' + D + '="";"";N(' + rg('U') + ')-N(' + rg('AQ') + ')))');
 
-  // Y (nascosta): ricavo del viaggio per il REGISTRO =
-  //   Totale_Ricavi (colonna Z, qui in AJ) + Totale_Ricavi_Manuale (colonna AB, qui in AK).
+  // W (nascosta): costo della singola riga = costo giornaliero usato + km x €/km
+  sh.getRange(R1, 23).setFormula(
+    '=ARRAYFORMULA(IF(' + D + '="";"";N(' + rg('U') + ')+N(' + rg('K') + ')*' +
+    'IF(' + rg('L') + '="";PARAMETRI!$B$3;' + rg('L') + ')))');
+
+  // Z (nascosta): ricavo del viaggio per il REGISTRO =
+  //   Totale_Ricavi (colonna Z di REGISTRO_VIAGGI, qui in AK) + Totale_Ricavi_Manuale (colonna AB, qui in AL).
   // Il manuale si SOMMA sempre al calcolato (supplementi; per togliere si scrive un negativo).
-  sh.getRange(R1, 25).setFormula(
-    '=ARRAYFORMULA(IF(' + D + '="";"";N(' + rg('AJ') + ')+N(' + rg('AK') + ')))');
+  sh.getRange(R1, 26).setFormula(
+    '=ARRAYFORMULA(IF(' + D + '="";"";N(' + rg('AK') + ')+N(' + rg('AL') + ')))');
 
-  const costoGruppo = 'SUMIF(' + chiave + ';' + chiave + ';' + rg('V') + ')';
-  const ricavoGruppo = 'SUMIF(' + chiave + ';' + chiave + ';' + rg('Y') + ')';
+  const costoGruppo = 'SUMIF(' + chiave + ';' + chiave + ';' + rg('W') + ')';
+  const ricavoGruppo = 'SUMIF(' + chiave + ';' + chiave + ';' + rg('Z') + ')';
 
   // Con "Tutte" (o vuota): costo, ricavo e margine della GIORNATA sulla prima riga del gruppo.
   // Con una tratta scelta: i valori del SINGOLO viaggio (il fisso resta sul primo viaggio del giorno).
   const tutte = '(OR($G$2="";$G$2="Tutte"))';
-  sh.getRange(R1, 12).setFormula(          // L Totale costo
-    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + tutte + ';IF(' + primo_ + ';' + costoGruppo + ';"");' + rg('V') + ')))');
-  sh.getRange(R1, 17).setFormula(          // Q Ricavo
-    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + tutte + ';IF(' + primo_ + ';' + ricavoGruppo + ';"");' + rg('Y') + ')))');
-  sh.getRange(R1, 18).setFormula(          // R Margine reale = ricavo - costo
+  sh.getRange(R1, 13).setFormula(          // M Totale costo
+    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + tutte + ';IF(' + primo_ + ';' + costoGruppo + ';"");' + rg('W') + ')))');
+  sh.getRange(R1, 18).setFormula(          // R Ricavo
+    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + tutte + ';IF(' + primo_ + ';' + ricavoGruppo + ';"");' + rg('Z') + ')))');
+  sh.getRange(R1, 19).setFormula(          // S Margine reale = ricavo - costo
     '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + tutte + ';IF(' + primo_ + ';' + ricavoGruppo + '-' + costoGruppo + ';"");' +
-    rg('Y') + '-' + rg('V') + ')))');
-  // AM / AN (nascoste): costo e ricavo della giornata SEMPRE sulla prima riga, qualunque tratta sia scelta.
-  // Li leggono il registro del giorno e il registro mezzo, che cosi' non cambiano con la tendina.
-  sh.getRange(R1, 39).setFormula(
-    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + primo_ + ';' + costoGruppo + ';"")))');
+    rg('Z') + '-' + rg('W') + ')))');
+  // AN / AO (nascoste): costo e ricavo della giornata SEMPRE sulla prima riga, qualunque tratta sia scelta.
   sh.getRange(R1, 40).setFormula(
+    '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + primo_ + ';' + costoGruppo + ';"")))');
+  sh.getRange(R1, 41).setFormula(
     '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + primo_ + ';' + ricavoGruppo + ';"")))');
-  // AL (nascosta): 1 se la riga e' visibile (non nascosta dal filtro). Serve al confronto in alto.
+  // AM (nascosta): 1 se la riga e' visibile (non nascosta dal filtro). Serve al confronto in alto.
   const vis = [];
   for (let r = R1; r <= U; r++) vis.push(['=IF($B' + r + '="";0;SUBTOTAL(103;$C' + r + '))']);
-  sh.getRange(R1, 38, vis.length, 1).setFormulas(vis);
-  sh.getRange(R1, 19).setFormula(          // S Teorico = costo + utile atteso
+  sh.getRange(R1, 39, vis.length, 1).setFormulas(vis);
+  sh.getRange(R1, 20).setFormula(          // T Teorico = costo + utile atteso
     '=ARRAYFORMULA(IF(' + D + '="";"";IF(' + primo_ + ';' + costoGruppo + '+' + utile + ';"")))');
 
   // ---------- intestazioni dell'elenco ----------
   const titoli = ["Mese", "Data", "Targa", "Categoria", "Autista", "Tratta", "T/R",
-    "Costo\ngiornaliero", "Costo giornaliero\nmanuale", "Km", "€/km", "Totale\ncosto",
+    "Costo\nautista", "Costi fissi\nmezzo", "Costo giornaliero\nmanuale", "Km", "€/km", "Totale\ncosto",
     "Tonn.", "€/ton", "Ore", "€/ora", "Ricavo €", "Margine reale\ndel giorno", "Teorico\ndel giorno"];
   smIntestazioni_(sh, rTest, 1, titoli);
-  sh.getRange(rTest, 1, 1, 19).setBackground("#0b192c").setFontColor("#FFFFFF");
+  sh.getRange(rTest, 1, 1, 20).setBackground("#0b192c").setFontColor("#FFFFFF");
   // le due colonne in cui scrivi tu: arancioni
   [SM_COL_COSTOG_MAN, SM_COL_EUROKM].forEach(c => {
     sh.getRange(rTest, c).setBackground("#b45309");
     sh.getRange(R1, c, U - R1 + 1, 1).setBackground("#fffbeb");
   });
   // le due tariffe si leggono meglio con uno sfondo tenue
-  [14, 16].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setBackground("#f0f9ff"));
+  [15, 17].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setBackground("#f0f9ff"));
   sh.setRowHeight(rTest, 38);
 
-  [[1,80],[2,90],[3,95],[4,95],[5,165],[6,150],[7,45],[8,95],[9,105],[10,65],[11,65],
-   [12,100],[13,70],[14,65],[15,60],[16,65],[17,100],[18,115],[19,105]]
+  [[1,80],[2,90],[3,95],[4,95],[5,165],[6,150],[7,45],[8,85],[9,85],[10,105],[11,65],[12,65],
+   [13,100],[14,70],[15,65],[16,60],[17,65],[18,100],[19,115],[20,105]]
     .forEach(x => sh.setColumnWidth(x[0], x[1]));
   sh.getRange(R1, 2, U - R1 + 1, 1).setNumberFormat("dd/mm/yyyy");
-  sh.getRange(R1, 10, U - R1 + 1, 1).setNumberFormat("#,##0");
-  [11, 14, 16].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setNumberFormat('0.00 "€"'));
-  [13, 15].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setNumberFormat("#,##0.0"));
-  [8, 9, 12, 17, 18, 19].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setNumberFormat('#,##0.00 "€"'));
-  [1, 2, 7, 11, 14, 16].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setHorizontalAlignment("center"));
+  sh.getRange(R1, 11, U - R1 + 1, 1).setNumberFormat("#,##0");
+  [12, 15, 17].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setNumberFormat('0.00 "€"'));
+  [14, 16].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setNumberFormat("#,##0.0"));
+  [8, 9, 10, 13, 18, 19, 20].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setNumberFormat('#,##0.00 "€"'));
+  [1, 2, 7, 12, 15, 17].forEach(c => sh.getRange(R1, c, U - R1 + 1, 1).setHorizontalAlignment("center"));
 
   // margine del giorno: rosso sotto l'utile atteso (200 terra / 300 rifiuti), verde sopra
-  const zona = [sh.getRange(R1, 18, U - R1 + 1, 1)];
+  const zona = [sh.getRange(R1, 19, U - R1 + 1, 1)];
   // Le regole di colore NON possono leggere un altro foglio direttamente:
   // Google le rifiuta e lo script si blocca. INDIRECT e' l'unico modo ammesso.
   const soglia = 'IF($G' + R1 + '="r";INDIRECT("PARAMETRI!B5");IF($G' + R1 + '="p";INDIRECT("PARAMETRI!B9");INDIRECT("PARAMETRI!B4")))';
   sh.setConditionalFormatRules(sh.getConditionalFormatRules().concat([
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND(ISNUMBER($R' + R1 + ');$R' + R1 + '<' + soglia + ')')
+      .whenFormulaSatisfied('=AND(ISNUMBER($S' + R1 + ');$S' + R1 + '<' + soglia + ')')
       .setFontColor("#b91c1c").setBold(true).setBackground("#fee2e2").setRanges(zona).build(),
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND(ISNUMBER($R' + R1 + ');$R' + R1 + '>=' + soglia + ')')
+      .whenFormulaSatisfied('=AND(ISNUMBER($S' + R1 + ');$S' + R1 + '>=' + soglia + ')')
       .setFontColor("#15803d").setBold(true).setBackground("#dcfce7").setRanges(zona).build()
   ]));
 
   smRiepiloghiV22_(sh, R1, U, mesi, rMese, rUltimoMese);
 
-  sh.hideColumns(20, 23);   // da T in poi: solo aiuti di calcolo
+  sh.hideColumns(21, 24);   // da U ad AR: solo aiuti di calcolo
   sh.setFrozenRows(rTest);
-  // NIENTE setFrozenColumns: il titolo in riga 1 e' una cella unita A:S,
+  // NIENTE setFrozenColumns: il titolo in riga 1 e' una cella unita A:T,
   // e Google rifiuta di bloccare colonne che la taglierebbero a meta'.
-  sh.getRange(rTest, 1, U - rTest + 1, 19).createFilter();
+  sh.getRange(rTest, 1, U - rTest + 1, 20).createFilter();
   smInstallaTriggerModifica_();             // Dal/al e Tratta applicano il filtro da soli
   smApplicaFiltri_(sh);                     // il periodo vale subito anche per l'elenco
   SpreadsheetApp.flush();
@@ -763,39 +780,43 @@ function CREA_REGISTRO_MESE() {
 // ------------------------------------------------------------
 function smRiepiloghiV22_(sh, R1, U, mesi, rMese, rUltimoMese) {
   const rg = (L) => '$' + L + '$' + R1 + ':$' + L + '$' + U;
-  // FISSO = costo giornaliero USATO (colonna nascosta T: manuale se c'e', altrimenti automatico)
-  // Valori del SINGOLO viaggio (colonne nascoste): V costo della riga, Y ricavo della riga.
+  // FISSO = costo giornaliero USATO (colonna nascosta U: manuale se c'e', altrimenti autista + fissi)
+  // AUT / FIS = le due parti del costo usato (colonne nascoste AQ e AR)
+  // Valori del SINGOLO viaggio (colonne nascoste): W costo della riga, Z ricavo della riga.
   // La somma e' identica a quella per giornata, ma cosi' il confronto funziona anche filtrando per tratta.
-  const DATE = rg('B'), TARG = rg('C'), TR = rg('G'), FISSO = rg('T'),
-        KM = rg('J'), TOT = rg('V'), RIC = rg('Y'), MESE = rg('A');
-  const VIS = rg('AL');     // 1 = riga visibile (non nascosta dal filtro della tendina Tratta)
+  const DATE = rg('B'), TARG = rg('C'), TR = rg('G'), FISSO = rg('U'),
+        KM = rg('K'), TOT = rg('W'), RIC = rg('Z'), MESE = rg('A'),
+        AUT = rg('AQ'), FIS = rg('AR');
+  const VIS = rg('AM');     // 1 = riga visibile (non nascosta dal filtro della tendina Tratta)
   // giornate VERE: camion + data. L'appalti notte non aggiunge giornate:
   // il suo utile in piu' entra nel teorico, sommando la colonna "Teorico del giorno".
-  const chiave = rg('X');   // chiave del giorno, colonna nascosta X
-  const TEOR = rg('S');
+  const chiave = rg('Y');   // chiave del giorno, colonna nascosta Y
+  const TEOR = rg('T');
 
   // Ordine delle colonne (scostamento dalla prima colonna numerica):
-  //  +0 Giornate  +1 Km  +2 Costo giornaliero  +3 €/km medio  +4 Costo km  +5 TOTALE COSTO
-  //  +6 RICAVO EFFETTIVO  +7 MARGINE  +8 MARGINE %
-  //  +9 MARGINE REALE per giornata  +10 Utile atteso per giornata  +11 RICAVO TEORICO
-  //  +12 DIFFERENZA
-  const N_COL = 13;          // colonne numeriche
-  const intest = ["Giornate\ncamion", "Km", "Costo giornaliero\nmedio", "€/km\nmedio", "Costo km",
+  //  +0 Giornate  +1 Km  +2 Costo AUTISTA  +3 Costi FISSI  +4 Costo giornaliero medio
+  //  +5 €/km medio  +6 Costo km  +7 TOTALE COSTO
+  //  +8 RICAVO EFFETTIVO  +9 MARGINE  +10 MARGINE %
+  //  +11 MARGINE REALE per giornata  +12 Utile atteso per giornata  +13 RICAVO TEORICO
+  //  +14 DIFFERENZA
+  const N_COL = 15;          // colonne numeriche
+  const intest = ["Giornate\ncamion", "Km", "Costo\nautista", "Costi fissi\nmezzo", "Costo giornaliero\nmedio",
+    "€/km\nmedio", "Costo km",
     "TOTALE\nCOSTO", "RICAVO\nEFFETTIVO", "MARGINE", "MARGINE\n%",
     "MARGINE REALE\nper giornata", "Utile atteso\nper giornata", "RICAVO\nTEORICO", "DIFFERENZA"];
 
   // formule comuni alle righe di dettaglio e ai totali (calcolate dalle celle della stessa riga)
   function derivate(r, c0) {
     const L = (n) => smLettera_(c0 + n);
-    // costo giornaliero MEDIO: i fissi pagati (320 feriali, 100 nel weekend, 180 appalti) / giornate
-    sh.getRange(r, c0 + 2).setFormula('=IFERROR((' + L(5) + r + '-' + L(4) + r + ')/' + L(0) + r + ';"")');
-    sh.getRange(r, c0 + 3).setFormula('=IFERROR(' + L(4) + r + '/' + L(1) + r + ';"")');           // €/km medio
-    sh.getRange(r, c0 + 7).setFormula('=' + L(6) + r + '-' + L(5) + r);                            // margine
-    sh.getRange(r, c0 + 8).setFormula('=IFERROR(' + L(7) + r + '/' + L(6) + r + ';"")');           // margine %
-    sh.getRange(r, c0 + 9).setFormula('=IFERROR(' + L(7) + r + '/' + L(0) + r + ';"")');           // per giornata
+    // costo giornaliero MEDIO: i fissi pagati (autista + fissi; 100 nel weekend, 180 appalti) / giornate
+    sh.getRange(r, c0 + 4).setFormula('=IFERROR((' + L(7) + r + '-' + L(6) + r + ')/' + L(0) + r + ';"")');
+    sh.getRange(r, c0 + 5).setFormula('=IFERROR(' + L(6) + r + '/' + L(1) + r + ';"")');           // €/km medio
+    sh.getRange(r, c0 + 9).setFormula('=' + L(8) + r + '-' + L(7) + r);                            // margine
+    sh.getRange(r, c0 + 10).setFormula('=IFERROR(' + L(9) + r + '/' + L(8) + r + ';"")');          // margine %
+    sh.getRange(r, c0 + 11).setFormula('=IFERROR(' + L(9) + r + '/' + L(0) + r + ';"")');          // per giornata
     // utile atteso per giornata REALE: 200/300 nei giorni normali, di piu' con l'appalti notte
-    sh.getRange(r, c0 + 10).setFormula('=IFERROR((' + L(11) + r + '-' + L(5) + r + ')/' + L(0) + r + ';"")');
-    sh.getRange(r, c0 + 12).setFormula('=' + L(6) + r + '-' + L(11) + r);                          // differenza
+    sh.getRange(r, c0 + 12).setFormula('=IFERROR((' + L(13) + r + '-' + L(7) + r + ')/' + L(0) + r + ';"")');
+    sh.getRange(r, c0 + 14).setFormula('=' + L(8) + r + '-' + L(13) + r);                          // differenza
   }
 
   function riga(r, c0, cond, crit, par) {
@@ -805,41 +826,43 @@ function smRiepiloghiV22_(sh, R1, U, mesi, rMese, rUltimoMese) {
     sh.getRange(r, c0).setFormula(
       '=IF(COUNTIFS(' + crit + ')=0;0;COUNTUNIQUE(FILTER(' + chiave + ';' + cond + ')))');
     sh.getRange(r, c0 + 1).setFormula('=SUMIFS(' + KM + ';' + crit + ')');
-    sh.getRange(r, c0 + 4).setFormula('=SUMIFS(' + TOT + ';' + crit + ')-SUMIFS(' + FISSO + ';' + crit + ')');
-    sh.getRange(r, c0 + 5).setFormula('=SUMIFS(' + TOT + ';' + crit + ')');
-    sh.getRange(r, c0 + 6).setFormula('=SUMIFS(' + RIC + ';' + crit + ')');
+    sh.getRange(r, c0 + 2).setFormula('=SUMIFS(' + AUT + ';' + crit + ')');      // costo autista
+    sh.getRange(r, c0 + 3).setFormula('=SUMIFS(' + FIS + ';' + crit + ')');      // costi fissi
+    sh.getRange(r, c0 + 6).setFormula('=SUMIFS(' + TOT + ';' + crit + ')-SUMIFS(' + FISSO + ';' + crit + ')');
+    sh.getRange(r, c0 + 7).setFormula('=SUMIFS(' + TOT + ';' + crit + ')');
+    sh.getRange(r, c0 + 8).setFormula('=SUMIFS(' + RIC + ';' + crit + ')');
     // teorico = costo + giornate x utile FISSO della riga (200 terra, 300 rifiuti).
     // Cosi' l'utile atteso per giornata (calcolato in derivate) vale esattamente 200 o 300.
-    sh.getRange(r, c0 + 11).setFormula('=' + smLettera_(c0 + 5) + r + '+' + smLettera_(c0) + r + '*PARAMETRI!' + par);
+    sh.getRange(r, c0 + 13).setFormula('=' + smLettera_(c0 + 7) + r + '+' + smLettera_(c0) + r + '*PARAMETRI!' + par);
     derivate(r, c0);
   }
 
   // riga di totale: somma le grandezze, poi ricalcola i rapporti (che non si sommano)
   function totale(r, c0, a, b) {
     const L = (n) => smLettera_(c0 + n);
-    [0, 1, 4, 5, 6, 11].forEach(n =>
+    [0, 1, 2, 3, 6, 7, 8, 13].forEach(n =>
       sh.getRange(r, c0 + n).setFormula('=SUM(' + L(n) + a + ':' + L(n) + b + ')'));
     derivate(r, c0);
   }
 
   function stile(r0, n, c0, ncol) {
     sh.getRange(r0, c0, n, 2).setNumberFormat("#,##0");
-    sh.getRange(r0, c0 + 2, n, 1).setNumberFormat('#,##0.00 "€"');
-    sh.getRange(r0, c0 + 3, n, 1).setNumberFormat('0.00 "€"');
-    sh.getRange(r0, c0 + 4, n, 4).setNumberFormat('#,##0.00 "€"');   // costo km, tot costo, effettivo, margine
-    sh.getRange(r0, c0 + 8, n, 1).setNumberFormat('0.0%');            // margine %
-    sh.getRange(r0, c0 + 9, n, 4).setNumberFormat('#,##0.00 "€"');   // per giornata, utile, teorico, differenza
+    sh.getRange(r0, c0 + 2, n, 3).setNumberFormat('#,##0.00 "€"');   // autista, fissi, costo giornaliero medio
+    sh.getRange(r0, c0 + 5, n, 1).setNumberFormat('0.00 "€"');
+    sh.getRange(r0, c0 + 6, n, 4).setNumberFormat('#,##0.00 "€"');   // costo km, tot costo, effettivo, margine
+    sh.getRange(r0, c0 + 10, n, 1).setNumberFormat('0.0%');           // margine %
+    sh.getRange(r0, c0 + 11, n, 4).setNumberFormat('#,##0.00 "€"');  // per giornata, utile, teorico, differenza
     sh.getRange(r0, 1, n, ncol).setHorizontalAlignment("center")
       .setBorder(true, true, true, true, true, true, "#cbd5e1", SpreadsheetApp.BorderStyle.SOLID);
   }
 
   function colori(r0, n, c0) {
     // margine e differenza: rosso sotto zero, verde sopra
-    const segno = [c0 + 7, c0 + 12].map(c => sh.getRange(r0, c, n, 1));
+    const segno = [c0 + 9, c0 + 14].map(c => sh.getRange(r0, c, n, 1));
     // margine %: rosso sotto la soglia di PARAMETRI (B7, di base 30%), verde da li' in su.
     // INDIRECT: le regole di colore non possono leggere un altro foglio direttamente.
-    const LP = smLettera_(c0 + 8);
-    const zP = [sh.getRange(r0, c0 + 8, n, 1)];
+    const LP = smLettera_(c0 + 10);
+    const zP = [sh.getRange(r0, c0 + 10, n, 1)];
     sh.setConditionalFormatRules(sh.getConditionalFormatRules().concat([
       SpreadsheetApp.newConditionalFormatRule()
         .whenFormulaSatisfied('=AND(ISNUMBER($' + LP + r0 + ');$' + LP + r0 + '<INDIRECT("PARAMETRI!B7"))')
@@ -849,7 +872,7 @@ function smRiepiloghiV22_(sh, R1, U, mesi, rMese, rUltimoMese) {
         .setFontColor("#15803d").setBold(true).setBackground("#dcfce7").setRanges(zP).build()
     ]));
     // margine per giornata: rosso sotto l'utile atteso, verde da li' in su
-    const cM = c0 + 9, cU = c0 + 10;
+    const cM = c0 + 11, cU = c0 + 12;
     const LM = smLettera_(cM), LU = smLettera_(cU);
     const zM = [sh.getRange(r0, cM, n, 1)];
     sh.setConditionalFormatRules(sh.getConditionalFormatRules().concat([
@@ -866,7 +889,7 @@ function smRiepiloghiV22_(sh, R1, U, mesi, rMese, rUltimoMese) {
     ]));
   }
 
-  // ====== periodo scelto (righe 3-7): Tipo + 13 colonne = A:N ======
+  // ====== periodo scelto (righe 3-8): Tipo + 15 colonne = A:P ======
   const ultP = smLettera_(1 + N_COL);
   smBanda_(sh, "A3:" + ultP + "3", "CONFRONTO TEORICO / EFFETTIVO  —  PERIODO SCELTO", "#6d28d9");
   smIntestazioni_(sh, 4, 1, ["Tipo"].concat(intest));
@@ -889,7 +912,7 @@ function smRiepiloghiV22_(sh, R1, U, mesi, rMese, rUltimoMese) {
   stile(5, 4, 2, 1 + N_COL);
   colori(5, 4, 2);
 
-  // ====== mese per mese (spento con SM_MOSTRA_MENSILE = false): Mese + Tipo + 13 = A:O ======
+  // ====== mese per mese (spento con SM_MOSTRA_MENSILE = false): Mese + Tipo + 15 = A:Q ======
   if (!SM_MOSTRA_MENSILE) return;
   const ultM = smLettera_(2 + N_COL);
   smBanda_(sh, "A10:" + ultM + "10", "CONFRONTO MESE PER MESE", "#0369a1");
@@ -915,7 +938,7 @@ function smRiepiloghiV22_(sh, R1, U, mesi, rMese, rUltimoMese) {
   // totale generale: somma le righe TOTALE dei singoli mesi, poi ricalcola i rapporti
   const rGran = rUltimoMese, daR = rMese + 1, aR = rGran - 1;
   sh.getRange(rGran, 2).setValue("TOTALE GENERALE").setFontWeight("bold");
-  [0, 1, 4, 5, 6, 11].forEach(n => {
+  [0, 1, 2, 3, 6, 7, 8, 13].forEach(n => {
     const L = smLettera_(3 + n);
     sh.getRange(rGran, 3 + n).setFormula(
       '=SUMIF($B$' + daR + ':$B$' + aR + ';"TOTALE";' + L + '$' + daR + ':' + L + '$' + aR + ')');
@@ -1051,8 +1074,8 @@ function CREA_REGISTRO_GIORNO() {
 
   // intervalli del registro del mese
   const X = (L) => SM_FOGLIO_REGISTRO + "!$" + L + "$" + R1 + ":$" + L + "$" + U;
-  const DATE = X('B'), TR = X('G'), FISSO = X('T'), KM = X('J'),
-        TOT = X('V'), RIC = X('Y'), CHG = X('X');     // V/Y: costo e ricavo del SINGOLO viaggio (diviso giusto tra terra, rifiuti e pianale)
+  const DATE = X('B'), TR = X('G'), FISSO = X('U'), KM = X('K'),
+        TOT = X('W'), RIC = X('Z'), CHG = X('Y');     // V/Y: costo e ricavo del SINGOLO viaggio (diviso giusto tra terra, rifiuti e pianale)
 
   // ------------------------------------------------------------------
   //  DISPOSIZIONE
@@ -1569,14 +1592,23 @@ function smAssicuraParametri_(s) {
     [6, "Costo giornaliero LAVORI NOTTE", 180, "fisso dei lavori notturni (tratte con \"notte\" nel nome) quando quel giorno il camion ha fatto anche altri lavori", '#,##0.00 "€"'],
     [7, "Margine % minimo", 0.3, "sotto questa percentuale il margine % del registro diventa rosso", "0%"],
     [9, "Utile giornaliero PIANALE", "=B4", "margine atteso per giorno sui lavori con il pianale (di base uguale alla terra: scrivi un numero per cambiarlo)", '#,##0.00 "€"'],
-    [8, "Costo giornaliero SABATO e DOMENICA", 100, "costo fisso nel fine settimana: sostituisce sia il costo giornaliero sia quello dell'appalti notte", '#,##0.00 "€"']
+    [8, "Costo giornaliero SABATO e DOMENICA", 100, "costo fisso nel fine settimana: sostituisce sia il costo giornaliero sia quello dell'appalti notte (tutto costo autista)", '#,##0.00 "€"'],
+    [10, "Costo giornaliero AUTISTA", 202, "parte del costo giornaliero per l'autista (dal lunedi' al venerdi')", '#,##0.00 "€"'],
+    [11, "Costo giornaliero FISSI MEZZO", 118, "parte del costo giornaliero per i costi fissi del mezzo (dal lunedi' al venerdi')", '#,##0.00 "€"']
   ];
+  let nuovaDivisione = false;
   righe.forEach(x => {
     if (String(par.getRange(x[0], 1).getValue()).trim() !== "") return;
     par.getRange(x[0], 1, 1, 3).setValues([[x[1], x[2], x[3]]]);
     par.getRange(x[0], 2).setNumberFormat(x[4])
       .setBackground("#fff7ed").setFontWeight("bold").setHorizontalAlignment("center");
+    if (x[0] === 10) nuovaDivisione = true;
   });
+  // il costo giornaliero (B2) diventa autista + fissi: si cambiano le righe 10 e 11
+  if (nuovaDivisione) {
+    par.getRange("B2").setFormula("=B10+B11");
+    par.getRange("C2").setValue("= autista (riga 10) + fissi del mezzo (riga 11): cambia quelle due righe");
+  }
 }
 
 // ============================================================
@@ -1615,8 +1647,8 @@ function CREA_REGISTRO_MEZZO() {
 
   // dal registro del mese
   const RM = (L) => SM_FOGLIO_REGISTRO + "!$" + L + "$" + R1 + ":$" + L + "$" + U;
-  const RM_MESE = RM('A'), RM_DATA = RM('B'), RM_TARGA = RM('C'), RM_TR = RM('G'), RM_KM = RM('J'),
-        RM_TOT = RM('V'), RM_RIC = RM('Y'), RM_CHG = RM('X');     // V/Y: per singolo viaggio
+  const RM_MESE = RM('A'), RM_DATA = RM('B'), RM_TARGA = RM('C'), RM_TR = RM('G'), RM_KM = RM('K'),
+        RM_TOT = RM('W'), RM_RIC = RM('Z'), RM_CHG = RM('Y');     // W/Z: per singolo viaggio
   // dai rifornimenti: B data, C targa, D litri, E costo
   const RF_DATA = 'REGISTRO_RIFORNIMENTI!$B:$B', RF_TARGA = 'REGISTRO_RIFORNIMENTI!$C:$C',
         RF_LITRI = 'REGISTRO_RIFORNIMENTI!$D:$D', RF_COSTO = 'REGISTRO_RIFORNIMENTI!$E:$E';
@@ -1971,7 +2003,7 @@ function CREA_REGISTRO_ANNO() {
   // dal registro del mese (colonne per giornata, stabili)
   const X = (L) => SM_FOGLIO_REGISTRO + "!$" + L + "$" + R1 + ":$" + L + "$" + U;
   // V/Y: costo e ricavo del SINGOLO viaggio, cosi' la divisione tra terra, rifiuti e pianale e' esatta
-  const MESE = X('A'), TR = X('G'), FISSO = X('T'), KM = X('J'), TOT = X('V'), RIC = X('Y'), CHG = X('X');
+  const MESE = X('A'), TR = X('G'), FISSO = X('U'), KM = X('K'), TOT = X('W'), RIC = X('Z'), CHG = X('Y');
 
   // ------------------------------------------------------------------
   //  A Mese  B Tipo  C Giornate  D Km  E Costo giornaliero medio  F €/km medio  G Costo km
