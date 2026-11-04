@@ -113,8 +113,8 @@ function PREPARA_CONFRONTO() {
     .setBackground("#0b192c").setFontColor("#FFFFFF").setFontWeight("bold")
     .setHorizontalAlignment("center");
   rv.getRange(2, 27).setFormula(
-    '=ARRAYFORMULA(IF($A$2:$A$3000="";"";' +
-    'IFERROR(LOWER(TRIM(VLOOKUP($S$2:$S$3000;REGOLE_VIAGGI!$A:$I;9;FALSE)));"")))'
+    '=ARRAYFORMULA(IF($A$2:$A$10001="";"";' +
+    'IFERROR(LOWER(TRIM(VLOOKUP($S$2:$S$10001;REGOLE_VIAGGI!$A:$I;9;FALSE)));"")))'
   );
 
   SpreadsheetApp.flush();
