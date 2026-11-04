@@ -21,7 +21,7 @@ const PASSWORD_ADMIN = process.env.PASSWORD_ADMIN;
 
 // Quante righe recenti del registro considerare per i viaggi attivi
 const FINESTRA = 1500;     // righe recenti usate per i viaggi attivi
-const FINESTRA_MAX = 5000; // tetto di righe lette dal registro
+const FINESTRA_MAX = 10000; // tetto di righe lette dal registro (era 5000: si sarebbe riempito verso marzo 2027)
 
 // ---- connessione a Google (riusata tra le richieste finche' la funzione resta calda)
 let _sheets = null;

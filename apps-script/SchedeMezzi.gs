@@ -413,7 +413,37 @@ function smIntestazioni_(sh, riga, colonna, titoli) {
 //  Per ordinare usa Dati > Visualizzazioni filtro.
 // ============================================================
 const SM_FOGLIO_REGISTRO = "REGISTRO_MESE";
-const SM_ULTIMA_RIGA_REG = 2000;
+
+// QUANTE RIGHE HA IL REGISTRO.
+// Prima era fisso a 2000 righe e a novembre 2026 si sarebbe riempito.
+// Ora il registro e' grande quanto serve: i viaggi che ci sono + una SCORTA
+// per i viaggi delle prossime settimane, arrotondato a 500, fino a un MASSIMO di 10.000.
+// Cosi' resta veloce: le formule lavorano solo sulle righe che servono.
+// Quando le righe libere scendono sotto 300, in alto nel registro compare un avviso rosso:
+// basta rilanciare "Crea il registro del mese" e il registro si allarga da solo.
+const SM_REG_MIN = 2000;       // righe minime
+const SM_REG_MAX = 10000;      // righe massime
+const SM_REG_SCORTA = 1500;    // righe libere lasciate per i viaggi futuri (circa 6-7 settimane)
+const SM_REG_AVVISO = 300;     // sotto queste righe libere il registro diventa rosso
+
+// Ultima riga del registro calcolata al momento della creazione
+function smCalcolaUltimaRigaReg_(s, R1) {
+  let n = 0;
+  const rv = s.getSheetByName("REGISTRO_VIAGGI");
+  if (rv && rv.getLastRow() > 1) {
+    rv.getRange(2, 2, rv.getLastRow() - 1, 4).getValues().forEach(r => {
+      if (r[0] !== "" && r[0] != null && String(r[3] || "").trim() !== "") n++;   // con data e targa
+    });
+  }
+  const voluta = Math.ceil((R1 + n + SM_REG_SCORTA) / 500) * 500;
+  return Math.min(SM_REG_MAX, Math.max(SM_REG_MIN, voluta));
+}
+
+// Ultima riga del registro ESISTENTE (la usano registro giorno, mezzo, anno e "Compila €/km")
+function smUltimaRigaReg_() {
+  const v = Number(PropertiesService.getDocumentProperties().getProperty("SM_U_REG"));
+  return v > 0 ? v : SM_REG_MIN;
+}
 
 
 
@@ -458,7 +488,6 @@ const SM_COL_ID = 27;         // AA nascosta: id del viaggio, serve a non perder
 function CREA_REGISTRO_MESE() {
   const t0 = Date.now();
   const s = SpreadsheetApp.getActiveSpreadsheet();
-  const U = SM_ULTIMA_RIGA_REG;
   smAssicuraParametri_(s);
   const par = s.getSheetByName("PARAMETRI");
   const pred = Number(par.getRange("B3").getValue()) || 0.9;
@@ -540,6 +569,10 @@ function CREA_REGISTRO_MESE() {
   const rUltimoMese = rMese + 1 + mesi.length * 4;        // 4 righe per mese: terra, rifiuti, pianale, totale
   const rTest = SM_MOSTRA_MENSILE ? rUltimoMese + 2 : 10;  // intestazioni elenco viaggi
   const R1 = rTest + 1;
+  // grandezza del registro: i viaggi di oggi + la scorta (vedi SM_REG_SCORTA)
+  const U = smCalcolaUltimaRigaReg_(s, R1);
+  if (sh.getMaxRows() < U + 5) sh.insertRowsAfter(sh.getMaxRows(), U + 5 - sh.getMaxRows());
+  PropertiesService.getDocumentProperties().setProperty("SM_U_REG", String(U));
 
   // ---------- testata ----------
   sh.getRange("A1:T1").merge().setValue("REGISTRO VIAGGI  —  tutti i mesi")
@@ -743,6 +776,23 @@ function CREA_REGISTRO_MESE() {
   ]));
 
   smRiepiloghiV22_(sh, R1, U, mesi, rMese, rUltimoMese);
+
+  // ---------- riga 9: quante righe libere restano nel registro ----------
+  // Sotto SM_REG_AVVISO righe libere diventa rossa: si rilancia "Crea il registro del mese"
+  // e il registro si allarga da solo (fino a SM_REG_MAX).
+  const tot = U - R1 + 1;
+  sh.getRange("A9:T9").merge();
+  sh.getRange("A9").setFormula(
+    '=LET(lib;' + tot + '-COUNT($AC$' + R1 + ':$AC$' + U + ');' +
+    'IF(lib<' + SM_REG_AVVISO + ';"⚠ RESTANO SOLO "&lib&" RIGHE LIBERE NEL REGISTRO: rilancia 🚛 Priamus > 🚚 Schede mezzi > Crea il registro del mese (poi del giorno, mezzo e anno)";' +
+    '"Righe libere nel registro: "&lib&" su ' + tot + '"))')
+    .setFontSize(9).setFontColor("#94a3b8").setFontStyle("italic");
+  sh.setConditionalFormatRules(sh.getConditionalFormatRules().concat([
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=LEFT($A$9;1)="⚠"')
+      .setFontColor("#FFFFFF").setBold(true).setBackground("#dc2626")
+      .setRanges([sh.getRange("A9:T9")]).build()
+  ]));
 
   sh.hideColumns(21, 24);   // da U ad AR: solo aiuti di calcolo
   sh.setFrozenRows(rTest);
@@ -972,7 +1022,7 @@ function COMPILA_EURO_KM() {
   }
   if (rTest < 0) { ui.alert("Non trovo l'elenco dei viaggi nel registro."); return; }
 
-  const n = smCompilaEuroKm_(sh, rTest + 1, SM_ULTIMA_RIGA_REG, Date.now());
+  const n = smCompilaEuroKm_(sh, rTest + 1, smUltimaRigaReg_(), Date.now());
   ui.alert(n >= 0 ? ("€/km compilati: " + n + " viaggi.")
                   : "Il foglio non ha ancora finito di calcolare. Riprova tra un minuto.");
 }
@@ -1056,7 +1106,7 @@ function CREA_REGISTRO_GIORNO() {
     if (String(testa[i][0]).trim() === "Mese" && String(testa[i][1]).trim() === "Data") { rTest = i + 1; break; }
   }
   if (rTest < 0) { ui.alert("Non trovo l'elenco dei viaggi nel registro del mese."); return; }
-  const R1 = rTest + 1, U = SM_ULTIMA_RIGA_REG;
+  const R1 = rTest + 1, U = smUltimaRigaReg_();
 
   // Le giornate NON sono piu' scritte dallo script: le elenca una formula che legge
   // il registro del mese, quindi i giorni nuovi (ottobre, novembre...) compaiono da soli.
@@ -1634,7 +1684,7 @@ function CREA_REGISTRO_MEZZO() {
     if (String(testa[i][0]).trim() === "Mese" && String(testa[i][1]).trim() === "Data") { rTest = i + 1; break; }
   }
   if (rTest < 0) { ui.alert("Non trovo l'elenco dei viaggi nel registro del mese."); return; }
-  const R1 = rTest + 1, U = SM_ULTIMA_RIGA_REG, N = SZ_RIGHE;
+  const R1 = rTest + 1, U = smUltimaRigaReg_(), N = SZ_RIGHE;
 
   let sh = s.getSheetByName(SZ_FOGLIO);
   const pos = sh ? sh.getIndex() - 1 : 2;
@@ -1987,7 +2037,7 @@ function CREA_REGISTRO_ANNO() {
     if (String(testa[i][0]).trim() === "Mese" && String(testa[i][1]).trim() === "Data") { rTest = i + 1; break; }
   }
   if (rTest < 0) { ui.alert("Non trovo l'elenco dei viaggi nel registro del mese."); return; }
-  const R1 = rTest + 1, U = SM_ULTIMA_RIGA_REG;
+  const R1 = rTest + 1, U = smUltimaRigaReg_();
 
   let sh = s.getSheetByName(SA_FOGLIO);
   const pos = sh ? sh.getIndex() - 1 : 1;
