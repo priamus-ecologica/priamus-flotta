@@ -27,7 +27,8 @@
 
 const GO_BASE = "https://getposition0.guardoneitalia.it/WebAPI/API/";
 const GO_TZ = "Europe/Rome";
-const GO_ORA = 22;                       // ora dello scarico serale
+const GO_ORA = 21;                       // scarico serale verso le 21:45 (Google lo lancia tra le 21:30 e le 22:00)
+const GO_MINUTO = 45;                    // deve finire prima delle 22:35, quando parte l'agente di controllo
 const GO_FUNZIONE = "GPS_SCARICO_SERALE";
 const GO_SOSTA_MIN = 10;                 // soste più corte non vengono salvate
 const GO_TRAGITTO_MIN_KM = 0.5;          // tragitti più corti non vengono salvati
@@ -100,10 +101,10 @@ function GPS_SCARICA_DATA() {
 /** Menu: attiva lo scarico automatico ogni sera. */
 function GPS_ATTIVA() {
   goTogliTrigger_();
-  ScriptApp.newTrigger(GO_FUNZIONE).timeBased().atHour(GO_ORA).nearMinute(30)
+  ScriptApp.newTrigger(GO_FUNZIONE).timeBased().atHour(GO_ORA).nearMinute(GO_MINUTO)
     .everyDays(1).inTimezone(GO_TZ).create();
-  SpreadsheetApp.getUi().alert("Scarico automatico attivato: ogni sera verso le " + GO_ORA +
-    ":30 scarica i dati di oggi e ricontrolla quelli di ieri.");
+  SpreadsheetApp.getUi().alert("Scarico automatico attivato: ogni sera verso le " + GO_ORA + ":" + GO_MINUTO +
+    " scarica i dati di oggi e ricontrolla quelli di ieri.");
 }
 
 /** Menu: spegne lo scarico automatico. */
