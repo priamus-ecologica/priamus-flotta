@@ -67,7 +67,7 @@ function GPS_PROVA() {
   const ieri = goGiorno_(-1);
   const r = goScaricaGiorno_(ieri);
   SpreadsheetApp.getUi().alert("Scarico del " + goDataIt_(ieri) + " completato ✅\n\n" +
-    "Camion: " + r.camion + "\nSoste: " + r.soste + "\nTragitti: " + r.viaggi +
+    "Camion: " + r.camion + "\nSoste: " + r.soste + "\nTragitti: " + r.viaggi + goFalliti_(r) +
     "\n\nI dati sono nei fogli GPS_GIORNI, GPS_SOSTE e GPS_VIAGGI.");
 }
 
@@ -81,7 +81,7 @@ function GPS_SCARICA_DATA() {
   const giorno = m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
   const x = goScaricaGiorno_(giorno);
   ui.alert("Scarico del " + goDataIt_(giorno) + " completato ✅\n\nCamion: " + x.camion +
-    "\nSoste: " + x.soste + "\nTragitti: " + x.viaggi);
+    "\nSoste: " + x.soste + "\nTragitti: " + x.viaggi + goFalliti_(x));
 }
 
 /** Menu: attiva lo scarico automatico ogni sera. */
@@ -115,7 +115,6 @@ function goScaricaGiorno_(giorno) {
   const riepilogo = goCall_("AnalysisData/GetListDailySummary", Object.assign({ GroupPeriod: "Day" }, q));
   const contatori = goCall_("MessageData/GetListCounters", q);
   const soste = goCall_("HistoryData/GetListStopSummary", q);
-  const tragitti = goCall_("HistoryData/GetListTripSummary", q);
 
   const targa = x => String(x.RegistrationPlate || x.Name || "").trim().toUpperCase();
   const camion = {};
@@ -158,20 +157,32 @@ function goScaricaGiorno_(giorno) {
         (lat !== "" && lon !== "") ? "https://www.google.com/maps?q=" + lat + "," + lon : ""];
     });
 
-  const righeViaggi = tragitti
-    .filter(x => Number(x.DistanceMt || 0) >= GO_TRAGITTO_MIN_KM * 1000)
-    .map(x => [giorno, targa(x), goOra_(x.BeginDateTime), goOra_(x.EndDateTime),
-      Math.round(Number(x.DistanceMt) / 100) / 10,
-      goNum_(x.BeginLatitude, 5), goNum_(x.BeginLongitude, 5),
-      goNum_(x.EndLatitude, 5), goNum_(x.EndLongitude, 5),
-      goNum_(x.KmFromStart), goNum_(x.MaxSpeed)]);
-
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   goScrivi_(ss, "GPS_GIORNI", giorno, righeGiorni);
   goScrivi_(ss, "GPS_SOSTE", giorno, righeSoste);
+
+  // Tragitti: un camion alla volta (con tutta la flotta insieme il server chiude la connessione)
+  const righeViaggi = [];
+  const falliti = [];
+  Object.keys(camion).sort().forEach(t => {
+    const c = camion[t];
+    const filtro = c.perif ? { PerifId: c.perif } : { RegistrationPlate: t };
+    try {
+      goCall_("HistoryData/GetListTripSummary", Object.assign({}, q, filtro))
+        .filter(x => Number(x.DistanceMt || 0) >= GO_TRAGITTO_MIN_KM * 1000)
+        .forEach(x => righeViaggi.push([giorno, targa(x) || t, goOra_(x.BeginDateTime), goOra_(x.EndDateTime),
+          Math.round(Number(x.DistanceMt) / 100) / 10,
+          goNum_(x.BeginLatitude, 5), goNum_(x.BeginLongitude, 5),
+          goNum_(x.EndLatitude, 5), goNum_(x.EndLongitude, 5),
+          goNum_(x.KmFromStart), goNum_(x.MaxSpeed)]));
+    } catch (e) {
+      falliti.push(t);
+    }
+  });
+  righeViaggi.sort((a, b) => (a[1] + a[2]).localeCompare(b[1] + b[2]));
   goScrivi_(ss, "GPS_VIAGGI", giorno, righeViaggi);
 
-  return { camion: righeGiorni.length, soste: righeSoste.length, viaggi: righeViaggi.length };
+  return { camion: righeGiorni.length, soste: righeSoste.length, viaggi: righeViaggi.length, falliti: falliti };
 }
 
 /** Toglie le righe già presenti per quel giorno e aggiunge quelle nuove in fondo. */
@@ -219,7 +230,7 @@ function goScrivi_(ss, nome, giorno, righe) {
 /** Chiamata POST di lettura. Ritorna l'array "data". Se il token è scaduto, rifà il login una volta. */
 function goCall_(endpoint, corpo, giaRiprovato) {
   const token = goToken_();
-  const risp = UrlFetchApp.fetch(GO_BASE + endpoint, {
+  const risp = goFetch_(GO_BASE + endpoint, {
     method: "post",
     contentType: "application/json",
     payload: JSON.stringify(Object.assign({ token: token }, corpo)),
@@ -237,6 +248,20 @@ function goCall_(endpoint, corpo, giaRiprovato) {
       String(risp.getContentText()).slice(0, 200));
   }
   return Array.isArray(j.data) ? j.data : [];
+}
+
+/** UrlFetchApp con 3 tentativi: ogni tanto il server chiude la connessione ("Indirizzo non disponibile"). */
+function goFetch_(url, opzioni) {
+  let errore;
+  for (let i = 0; i < 3; i++) {
+    try {
+      return UrlFetchApp.fetch(url, opzioni);
+    } catch (e) {
+      errore = e;
+      Utilities.sleep(2000 * (i + 1));
+    }
+  }
+  throw errore;
 }
 
 /** Token valido (in cache per qualche ora). */
@@ -266,7 +291,7 @@ function goToken_() {
   let ultimoErrore = "";
   for (const i of ordine) {
     const corpo = Object.assign({ Password: pass, CodeMFA: null, UserOptions: null }, modi[i]);
-    const risp = UrlFetchApp.fetch(GO_BASE + "Login/Login", {
+    const risp = goFetch_(GO_BASE + "Login/Login", {
       method: "post", contentType: "application/json",
       payload: JSON.stringify(corpo), muteHttpExceptions: true
     });
@@ -286,6 +311,11 @@ function goToken_() {
 // ------------------------------------------------------------
 //  UTILITÀ
 // ------------------------------------------------------------
+
+function goFalliti_(r) {
+  return r.falliti && r.falliti.length ? "\n\n⚠ Tragitti non scaricati per: " + r.falliti.join(", ") +
+    " (riprova più tardi con \"Scarica un giorno\")" : "";
+}
 
 function goTogliTrigger_() {
   let n = 0;
