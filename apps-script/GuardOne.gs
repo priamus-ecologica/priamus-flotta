@@ -7,6 +7,13 @@
 //    - GPS_VIAGGI : i tragitti, con orari, km e coordinate
 //  I dati servono per controllare il REGISTRO_VIAGGI.
 //
+//  Pulizia automatica (ogni sera, dopo lo scarico):
+//    - GPS_SOSTE e GPS_VIAGGI tengono solo gli ultimi GO_GIORNI_TENUTI giorni
+//      (i dati vecchi restano comunque sul portale GuardOne)
+//    - GPS_GIORNI si tiene tutto (è piccolo: una riga per camion e giorno)
+//    - si salvano solo i camion di ANAGRAFICA_MEZZI
+//    - i fogli GPS tengono solo le colonne usate (meno celle nel file)
+//
 //  Usa SOLO chiamate di lettura (Login + GetList...). Non manda
 //  comandi ai camion e non modifica niente sul portale.
 //
@@ -24,6 +31,10 @@ const GO_ORA = 22;                       // ora dello scarico serale
 const GO_FUNZIONE = "GPS_SCARICO_SERALE";
 const GO_SOSTA_MIN = 10;                 // soste più corte non vengono salvate
 const GO_TRAGITTO_MIN_KM = 0.5;          // tragitti più corti non vengono salvati
+const GO_GIORNI_TENUTI = 60;             // GPS_SOSTE e GPS_VIAGGI: giorni tenuti nel foglio
+
+// targhe cambiate: il satellitare potrebbe usare quella nuova, nel foglio resta la vecchia
+const GO_TARGHE_ALIAS = { HF943DL: "GE098XW", HE973FN: "HE972FN" };
 
 const GO_FOGLI = {
   GPS_GIORNI: ["Data", "Targa", "PerifId", "Km_GPS", "Km_Contatore_Inizio", "Km_Contatore_Fine",
@@ -66,6 +77,7 @@ function GPS_CREDENZIALI() {
 function GPS_PROVA() {
   const ieri = goGiorno_(-1);
   const r = goScaricaGiorno_(ieri);
+  goPulisci_();
   SpreadsheetApp.getUi().alert("Scarico del " + goDataIt_(ieri) + " completato ✅\n\n" +
     "Camion: " + r.camion + "\nSoste: " + r.soste + "\nTragitti: " + r.viaggi + goFalliti_(r) +
     "\n\nI dati sono nei fogli GPS_GIORNI, GPS_SOSTE e GPS_VIAGGI.");
@@ -80,6 +92,7 @@ function GPS_SCARICA_DATA() {
   if (!m) { ui.alert("Data non valida. Esempio: 05/11/2026"); return; }
   const giorno = m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
   const x = goScaricaGiorno_(giorno);
+  goPulisci_();
   ui.alert("Scarico del " + goDataIt_(giorno) + " completato ✅\n\nCamion: " + x.camion +
     "\nSoste: " + x.soste + "\nTragitti: " + x.viaggi + goFalliti_(x));
 }
@@ -99,10 +112,75 @@ function GPS_DISATTIVA() {
   SpreadsheetApp.getUi().alert(n ? "Scarico automatico disattivato." : "Lo scarico automatico non era attivo.");
 }
 
-/** Lanciata dal trigger ogni sera: scarica oggi e riscarica ieri (viaggi notturni). */
+/** Lanciata dal trigger ogni sera: scarica oggi e riscarica ieri (viaggi notturni), poi pulisce. */
 function GPS_SCARICO_SERALE() {
   goScaricaGiorno_(goGiorno_(-1));
   goScaricaGiorno_(goGiorno_(0));
+  goPulisci_();
+}
+
+// ------------------------------------------------------------
+//  PULIZIA
+// ------------------------------------------------------------
+
+/**
+ * Toglie da GPS_SOSTE e GPS_VIAGGI i giorni più vecchi di GO_GIORNI_TENUTI,
+ * da tutti i fogli GPS i camion che non sono in ANAGRAFICA_MEZZI,
+ * e le colonne vuote in fondo ai fogli GPS. Ritorna le righe tolte.
+ */
+function goPulisci_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const limite = goGiorno_(-GO_GIORNI_TENUTI);
+  const flotta = goTargheFlotta_(ss);
+  const fuoriFlotta = t => !!flotta && t !== "" && !flotta.has(t);
+  let tolte = 0;
+  Object.keys(GO_FOGLI).forEach(nome => {
+    const sh = ss.getSheetByName(nome);
+    if (!sh) return;
+    const vecchia = nome === "GPS_GIORNI" ? (() => false)
+                                          : (d => /^\d{4}-\d{2}-\d{2}$/.test(d) && d < limite);
+    tolte += goTogliRighe_(sh, (d, t) => vecchia(d) || fuoriFlotta(t));
+    goTogliColonneVuote_(sh, GO_FOGLI[nome].length);
+  });
+  return tolte;
+}
+
+/** Targhe della flotta (ANAGRAFICA_MEZZI, colonna B). null = foglio non leggibile, quindi nessun filtro. */
+function goTargheFlotta_(ss) {
+  const sh = ss.getSheetByName("ANAGRAFICA_MEZZI");
+  if (!sh || sh.getLastRow() < 2) return null;
+  const t = sh.getRange(2, 2, sh.getLastRow() - 1, 1).getDisplayValues()
+    .map(r => String(r[0]).trim().toUpperCase()).filter(Boolean);
+  return t.length ? new Set(t) : null;
+}
+
+/**
+ * Cancella le righe (dalla 2 in giù) per cui togli(data, targa) è vero,
+ * dal basso verso l'alto e a blocchi contigui. Ritorna quante righe ha tolto.
+ */
+function goTogliRighe_(sh, togli) {
+  const ultima = sh.getLastRow();
+  if (ultima < 2) return 0;
+  // Google non permette di cancellare tutte le righe non bloccate: tengo una riga vuota di scorta
+  if (sh.getMaxRows() <= ultima) sh.insertRowsAfter(ultima, 1);
+  const val = sh.getRange(2, 1, ultima - 1, 2).getDisplayValues();
+  let fine = -1, n = 0;
+  for (let i = val.length - 1; i >= -1; i--) {
+    const si = i >= 0 && togli(String(val[i][0]).trim(), String(val[i][1]).trim().toUpperCase());
+    if (si && fine < 0) fine = i;
+    if (!si && fine >= 0) {
+      sh.deleteRows(i + 3, fine - i);
+      n += fine - i;
+      fine = -1;
+    }
+  }
+  return n;
+}
+
+/** Toglie le colonne oltre le n usate dallo script, solo se sono vuote. */
+function goTogliColonneVuote_(sh, n) {
+  const max = sh.getMaxColumns();
+  if (max > n && sh.getLastColumn() <= n) sh.deleteColumns(n + 1, max - n);
 }
 
 // ------------------------------------------------------------
@@ -116,11 +194,18 @@ function goScaricaGiorno_(giorno) {
   const contatori = goCall_("MessageData/GetListCounters", q);
   const soste = goCall_("HistoryData/GetListStopSummary", q);
 
-  const targa = x => String(x.RegistrationPlate || x.Name || "").trim().toUpperCase();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const flotta = goTargheFlotta_(ss);
+  const targa = x => {
+    const t = String(x.RegistrationPlate || x.Name || "").trim().toUpperCase();
+    return GO_TARGHE_ALIAS[t] || t;
+  };
+  const tieni = t => !flotta || flotta.has(t);   // solo i camion di ANAGRAFICA_MEZZI
   const camion = {};
   const prendi = t => (camion[t] = camion[t] || { perif: "", km: "", cIni: "", cFin: "", on: "", off: "" });
 
   riepilogo.forEach(x => {
+    if (!tieni(targa(x))) return;
     const c = prendi(targa(x));
     c.perif = x.PerifId || c.perif;
     c.km = goNum_(x.Distance);
@@ -130,6 +215,7 @@ function goScaricaGiorno_(giorno) {
     .slice()
     .sort((a, b) => String(a.GenerationDate).localeCompare(String(b.GenerationDate)))
     .forEach(x => {
+      if (!tieni(targa(x))) return;
       const c = prendi(targa(x));
       c.perif = x.PerifId || c.perif;
       const km = goNum_(x.Kms);
@@ -149,7 +235,7 @@ function goScaricaGiorno_(giorno) {
 
   // soste e tragitti arrivano già in ora italiana
   const righeSoste = soste
-    .filter(x => Number(x.TimeSec || 0) >= GO_SOSTA_MIN * 60)
+    .filter(x => Number(x.TimeSec || 0) >= GO_SOSTA_MIN * 60 && tieni(targa(x)))
     .map(x => {
       const lat = goNum_(x.BeginLatitude, 5), lon = goNum_(x.BeginLongitude, 5);
       return [giorno, targa(x), goOra_(x.BeginDateTime), goOra_(x.EndDateTime),
@@ -157,7 +243,6 @@ function goScaricaGiorno_(giorno) {
         (lat !== "" && lon !== "") ? "https://www.google.com/maps?q=" + lat + "," + lon : ""];
     });
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
   goScrivi_(ss, "GPS_GIORNI", giorno, righeGiorni);
   goScrivi_(ss, "GPS_SOSTE", giorno, righeSoste);
 
@@ -193,21 +278,9 @@ function goScrivi_(ss, nome, giorno, righe) {
     sh = ss.insertSheet(nome);
     sh.getRange(1, 1, 1, intest.length).setValues([intest]).setFontWeight("bold");
     sh.setFrozenRows(1);
+    goTogliColonneVuote_(sh, intest.length);
   }
-  const ultima = sh.getLastRow();
-  if (ultima > 1) {
-    const date = sh.getRange(2, 1, ultima - 1, 1).getDisplayValues();
-    // cancello dal basso verso l'alto, a blocchi contigui
-    let fine = -1;
-    for (let i = date.length - 1; i >= -1; i--) {
-      const uguale = i >= 0 && date[i][0] === giorno;
-      if (uguale && fine < 0) fine = i;
-      if (!uguale && fine >= 0) {
-        sh.deleteRows(i + 3, fine - i);
-        fine = -1;
-      }
-    }
-  }
+  goTogliRighe_(sh, d => d === giorno);
   if (!righe.length) return;
   const da = sh.getLastRow() + 1;
   const r = sh.getRange(da, 1, righe.length, intest.length);
