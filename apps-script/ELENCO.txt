@@ -10,3 +10,4 @@ appsscript.json
 estensioni.gs
 RiepilogoSerale.gs
 CaricoExtra.gs
+GuardOne.gs

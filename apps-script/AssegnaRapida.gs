@@ -70,6 +70,14 @@ function onOpen() {
     .addItem("Mandala adesso (prova)", "PROVA_MAIL_SERALE")
     .addItem("Disattiva", "DISATTIVA_MAIL_SERALE");
 
+  const gps = ui.createMenu("🛰️ Satellitare")
+    .addItem("Inserisci utente e password", "GPS_CREDENZIALI")
+    .addItem("Scarica ieri (prova)", "GPS_PROVA")
+    .addItem("Scarica un giorno…", "GPS_SCARICA_DATA")
+    .addSeparator()
+    .addItem("Attiva scarico serale (22:30)", "GPS_ATTIVA")
+    .addItem("Disattiva scarico serale", "GPS_DISATTIVA");
+
   ui.createMenu("🚛 Priamus")
     .addItem("➕ Carico extra (sul viaggio selezionato)", "CARICO_EXTRA")
     .addSeparator()
@@ -77,6 +85,7 @@ function onOpen() {
     .addSubMenu(costi)
     .addSubMenu(schede)
     .addSubMenu(mail)
+    .addSubMenu(gps)
     .addToUi();
 }
 
