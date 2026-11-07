@@ -75,7 +75,7 @@ function onOpen() {
     .addItem("Scarica ieri (prova)", "GPS_PROVA")
     .addItem("Scarica un giorno…", "GPS_SCARICA_DATA")
     .addSeparator()
-    .addItem("Attiva scarico serale (21:45)", "GPS_ATTIVA")
+    .addItem("Attiva scarico serale (20:45)", "GPS_ATTIVA")
     .addItem("Disattiva scarico serale", "GPS_DISATTIVA");
 
   ui.createMenu("🚛 Priamus")

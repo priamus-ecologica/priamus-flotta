@@ -27,8 +27,8 @@
 
 const GO_BASE = "https://getposition0.guardoneitalia.it/WebAPI/API/";
 const GO_TZ = "Europe/Rome";
-const GO_ORA = 21;                       // scarico serale verso le 21:45 (Google lo lancia tra le 21:30 e le 22:00)
-const GO_MINUTO = 45;                    // deve finire prima delle 22:35, quando parte l'agente di controllo
+const GO_ORA = 20;                       // scarico serale verso le 20:45 (Google lo lancia tra le 20:30 e le 21:00)
+const GO_MINUTO = 45;                    // deve finire prima delle 21:15, quando parte l'agente di controllo
 const GO_FUNZIONE = "GPS_SCARICO_SERALE";
 const GO_SOSTA_MIN = 10;                 // soste più corte non vengono salvate
 const GO_TRAGITTO_MIN_KM = 0.5;          // tragitti più corti non vengono salvati
