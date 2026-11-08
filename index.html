@@ -192,6 +192,7 @@ table.mvt { border-collapse: collapse; width: 100%; font-size: 12.5px; }
     </div>
     <button class="btn orange" onclick="assegna()">Conferma assegnazione</button>
     <button class="btn ghost" style="margin-top:8px;padding:9px;font-size:12px;" onclick="aggiornaDati()">🔄 Aggiorna autisti, camion e tratte</button>
+    <button class="btn ghost" style="margin-top:8px;padding:9px;font-size:12px;" onclick="provaNotifica()">🔔 Manda una notifica di prova all'autista scelto</button>
     <div id="msg-admin" class="msg hidden"></div>
   </div>
 
@@ -255,6 +256,11 @@ table.mvt { border-collapse: collapse; width: 100%; font-size: 12.5px; }
   <img class="logo-sm" src="icon-512.png" alt="Priamus">
   <h2>Benvenuto,<br><span id="nome-loggato" style="color:var(--orange)"></span></h2>
 
+  <div id="box-notifiche" class="hidden" style="background:#fff7ed;border:1px solid #fdba74;border-radius:12px;padding:14px;margin:14px 0;text-align:center">
+    <div id="not-testo" style="font-size:14px;line-height:1.4">🔔 Attiva le notifiche: ti avvisiamo sul telefono appena ti viene assegnato un viaggio.</div>
+    <button id="not-btn" class="btn orange" style="margin-top:10px" onclick="attivaNotifiche(false)">🔔 Attiva notifiche</button>
+  </div>
+
   <button class="btn blue" onclick="toggleRif(true)">⛽ Segnala rifornimento</button>
   <div id="form-rif" class="hidden" style="background:#f8fafc;padding:18px;border-radius:12px;border:1px solid #cbd5e1;margin-top:16px;">
     <h3 style="color:#0369a1">Nuovo rifornimento</h3>
@@ -296,6 +302,8 @@ let DATI = { autisti: [], mezzi: [], rimorchi: [], regole: [], ultimeDestinazion
 let FLOTTA = [];
 let VIAGGI = [];
 let autistaLoggato = "";
+let pinLoggato = "";      // serve solo per attivare le notifiche, resta in memoria
+let passAdmin = "";       // serve solo per la notifica di prova
 
 // Tutte le azioni sono ora ripetibili in sicurezza:
 // le scritture portano un id univoco e il server non le duplica.
@@ -500,12 +508,15 @@ async function login() {
     nascondi("err-login");
     nascondi("v-login");
     if (res.role === "admin") {
+      passAdmin = pass;
       mostra("v-admin");
       // prepara la Dashboard in sottofondo: al tocco sara' gia' pronta
       api("statoFlotta").then(f => { FLOTTA = f; }).catch(() => {});
     } else {
       autistaLoggato = res.nome;
+      pinLoggato = pass;
       $("nome-loggato").textContent = res.nome;
+      preparaNotifiche();
       mostra("v-autista");
       // I viaggi arrivano gia' con la risposta del login: nessuna attesa in piu'
       if (res.viaggi) mostraViaggi(res.viaggi);
@@ -518,12 +529,97 @@ async function login() {
 
 function esci() {
   autistaLoggato = "";
+  pinLoggato = ""; passAdmin = "";
+  nascondi("box-notifiche");
   nascondi("v-admin"); nascondi("v-autista"); mostra("v-login");
   $("pass").value = "";
   nascondi("err-login"); nascondi("msg-admin"); nascondi("msg-aut");
   toggleRif(false);
   tab("ass");
   window.scrollTo(0, 0);
+}
+
+// ---------- notifiche sul telefono ----------
+// Il telefono crea un "indirizzo" per le notifiche; lo mandiamo al server
+// insieme al nome dell'autista. Quando gli viene assegnato un viaggio
+// (dall'app o dal foglio) il server lo avvisa entro un paio di minuti.
+function notificheSupportate() {
+  return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+}
+
+function suIphoneNonInstallata() {
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const installata = window.navigator.standalone === true ||
+    (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  return ios && !installata;
+}
+
+function boxNotifiche(testo, conBottone) {
+  $("not-testo").innerHTML = testo;
+  $("not-btn").classList.toggle("hidden", !conBottone);
+  mostra("box-notifiche");
+}
+
+function preparaNotifiche() {
+  if (suIphoneNonInstallata()) {
+    boxNotifiche("🔔 Su iPhone le notifiche arrivano solo se l'app è sulla schermata Home:<br>" +
+      "tocca <b>Condividi</b> → <b>Aggiungi alla schermata Home</b>, poi apri l'app dall'icona.", false);
+    return;
+  }
+  if (!notificheSupportate()) { nascondi("box-notifiche"); return; }
+  if (Notification.permission === "granted") {
+    nascondi("box-notifiche");
+    attivaNotifiche(true);          // rinnova in silenzio l'iscrizione di questo telefono
+  } else if (Notification.permission === "denied") {
+    boxNotifiche("🔕 Le notifiche sono bloccate per questa app.<br>" +
+      "Riattivale dalle impostazioni del telefono (Notifiche → Chrome / Priamus).", false);
+  } else {
+    boxNotifiche("🔔 Attiva le notifiche: ti avvisiamo sul telefono appena ti viene assegnato un viaggio.", true);
+  }
+}
+
+function chiaveInByte(b64) {
+  const pad = "=".repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
+
+async function attivaNotifiche(silenzioso) {
+  try {
+    if (!silenzioso) {
+      const permesso = await Notification.requestPermission();
+      if (permesso !== "granted") { preparaNotifiche(); return; }
+      boxNotifiche("Attivazione in corso…", false);
+    }
+    const reg = await navigator.serviceWorker.ready;
+    let iscr = await reg.pushManager.getSubscription();
+    if (!iscr) {
+      const k = await api("pushChiave");
+      iscr = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chiaveInByte(k.chiave) });
+    }
+    await api("pushIscrivi", {
+      autista: autistaLoggato, pin: pinLoggato,
+      iscrizione: iscr.toJSON(), telefono: navigator.userAgent
+    });
+    if (!silenzioso) {
+      boxNotifiche("✅ Notifiche attive: ti avviseremo quando ti assegnano un viaggio.", false);
+      setTimeout(() => nascondi("box-notifiche"), 5000);
+    }
+  } catch (e) {
+    if (!silenzioso) boxNotifiche("⚠️ Non sono riuscito ad attivare le notifiche: " + e.message, true);
+  }
+}
+
+async function provaNotifica() {
+  const chi = $("a-autista").value;
+  if (!chi) { msg("msg-admin", "Scegli prima l'autista.", "err"); mostra("msg-admin"); return; }
+  msg("msg-admin", "Invio della notifica di prova…", "info"); mostra("msg-admin");
+  try {
+    const r = await api("pushProva", { autista: chi, password: passAdmin });
+    msg("msg-admin", r.msg, "ok");
+  } catch (e) {
+    msg("msg-admin", e.message, "err");
+  }
 }
 
 // ---------- admin ----------

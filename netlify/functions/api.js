@@ -14,6 +14,7 @@
 // ============================================================
 
 const { google } = require("googleapis");
+const push = require("../lib/push");   // notifiche sul telefono degli autisti
 
 const SHEET_ID = process.env.SHEET_ID;
 const SEGRETO = process.env.API_SEGRETO;
@@ -1161,6 +1162,28 @@ function parseOre(v) {
 // ------------------------------------------------------------
 //  Punto di ingresso
 // ------------------------------------------------------------
+// ---------- notifiche sul telefono ----------
+async function azPushChiave() {
+  return { chiave: await push.chiavePubblica(sheets(), SHEET_ID) };
+}
+
+async function azPushIscrivi(req) {
+  // serve il PIN: cosi' nessuno puo' ricevere le notifiche di un altro autista
+  const b = await base();
+  const nome = String(req.autista || "").trim();
+  if (!(nome in b.pin) || !b.pin[nome] || b.pin[nome] !== String(req.pin || "")) {
+    throw new Error("Autista o PIN non validi.");
+  }
+  return await push.iscrivi(sheets(), SHEET_ID, nome, req.iscrizione, req.telefono);
+}
+
+async function azPushProva(req) {
+  if (req.password !== PASSWORD_ADMIN) throw new Error("Password del responsabile errata.");
+  const r = await push.prova(sheets(), SHEET_ID, String(req.autista || "").trim());
+  if (!r.telefoni) return { msg: req.autista + " non ha ancora attivato le notifiche sul telefono." };
+  return { msg: "Notifica di prova mandata a " + req.autista + ": " + r.ok + " telefono/i su " + r.telefoni + "." };
+}
+
 exports.handler = async function (event) {
   const rispondi = (corpo, codice) => ({
     statusCode: codice || 200,
@@ -1204,6 +1227,9 @@ exports.handler = async function (event) {
       case "cercaViaggi":   dati = await azCercaViaggi(req); break;
       case "salvaViaggio":  dati = await azSalvaViaggio(req); break;
       case "aggiungiExtra": dati = await azAggiungiExtra(req); break;
+      case "pushChiave":    dati = await azPushChiave(); break;
+      case "pushIscrivi":   dati = await azPushIscrivi(req); break;
+      case "pushProva":     dati = await azPushProva(req); break;
       default: return rispondi({ ok: false, msg: "Azione sconosciuta: " + req.azione });
     }
     return rispondi({ ok: true, dati });
