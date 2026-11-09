@@ -415,7 +415,43 @@ async function azTermina(req) {
 
   await scriviBlocco(scritture);
   svuotaCoda();
+  await togliGialloKm(t.riga);
   return { msg: "Viaggio chiuso correttamente!" };
+}
+
+// Ricarichi: la sera del carico i KM di arrivo vengono scritti provvisori
+// (km del contatore a fine giornata) ed evidenziati in giallo.
+// Quando l'autista chiude il viaggio con i km veri, il giallo si toglie.
+let _idRegistro = null;
+async function togliGialloKm(riga) {
+  try {
+    const s = sheets();
+    if (_idRegistro === null) {
+      const info = await s.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets.properties(sheetId,title)" });
+      const f = (info.data.sheets || []).find(x => x.properties.title === "REGISTRO_VIAGGI");
+      if (!f) return;
+      _idRegistro = f.properties.sheetId;
+    }
+    const cella = await s.spreadsheets.get({
+      spreadsheetId: SHEET_ID,
+      ranges: ["REGISTRO_VIAGGI!G" + riga],
+      fields: "sheets.data.rowData.values.userEnteredFormat.backgroundColor"
+    });
+    const v = (((((cella.data.sheets || [])[0] || {}).data || [])[0] || {}).rowData || [])[0];
+    const bg = v && v.values && v.values[0] && v.values[0].userEnteredFormat && v.values[0].userEnteredFormat.backgroundColor;
+    // giallo = rosso e verde pieni, blu basso
+    if (!bg || !((bg.red || 0) > 0.9 && (bg.green || 0) > 0.8 && (bg.blue || 0) < 0.7)) return;
+    await s.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID,
+      requestBody: { requests: [{ repeatCell: {
+        range: { sheetId: _idRegistro, startRowIndex: riga - 1, endRowIndex: riga, startColumnIndex: 6, endColumnIndex: 7 },
+        cell: { userEnteredFormat: {} },
+        fields: "userEnteredFormat.backgroundColor"
+      } }] }
+    });
+  } catch (e) {
+    console.log("Giallo km non tolto alla riga " + riga + ": " + (e.message || e));
+  }
 }
 
 async function azElimina(req) {
